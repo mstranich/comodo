@@ -1,0 +1,61 @@
+# ==============================================================================
+# Comodo - Git Ignore Rules
+# ==============================================================================
+
+# Entornos virtuales de Python
+.venv/
+venv/
+env/
+python_embeded/
+ENV/
+
+# Archivos de caché y compilación de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+.Python
+.cache/
+
+# Carpetas de ComfyUI con contenido dinámico y pesado (instalación descargada)
+ComfyUI/
+ComfyUI_windows_portable/
+models/
+output/
+input/
+temp/
+
+# Pesos de modelos, checkpoints y tensores (AI/ML)
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
+*.engine
+*.tensorrt
+
+# Archivos comprimidos y paquetes
+*.7z
+*.zip
+*.tar
+*.tar.gz
+*.whl
+
+# Logs y volcados temporales
+*.log
+*.tmp
+*.dump
+
+# Configuración local de la máquina (autocalibrada o personalizada)
+etc/config.json
+etc/*.local.json
+etc/*.bak
+etc/config.json.corrupt-*.bak
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo

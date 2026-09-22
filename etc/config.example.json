@@ -1,0 +1,41 @@
+{
+  "$comment": "Plantilla base. El comando 'probe' sobrescribe hardware/, install.cuda_version y optimizations/ con lo que detecte en la maquina.",
+  "hardware": {
+    "vendor": null,
+    "model": null,
+    "vram_gb": null,
+    "cuda_compute": null,
+    "arch": null,
+    "profile": "unknown",
+    "accelerator": null,
+    "detection_source": "none"
+  },
+  "install": {
+    "method": "uv",
+    "cuda_version": null,
+    "torch_index_url": null,
+    "python_version": "3.12",
+    "comfy_repo": "https://github.com/comfyanonymous/ComfyUI.git",
+    "install_dir": "ComfyUI"
+  },
+  "optimizations": {
+    "triton": false,
+    "sage_attention": false
+  },
+  "runtime": {
+    "lowvram": false,
+    "highvram": false,
+    "sage_attention": false,
+    "preview_method": "auto",
+    "listen": "127.0.0.1",
+    "port": 8188,
+    "extra_args": []
+  },
+  "custom_nodes": [
+    {
+      "name": "ComfyUI-Manager",
+      "url": "https://github.com/Comfy-Org/ComfyUI-Manager.git",
+      "enabled": true
+    }
+  ]
+}

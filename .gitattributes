@@ -1,0 +1,16 @@
+# Normalización de finales de línea
+* text=auto
+
+# Scripts de PowerShell en Windows
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Python, JSON y documentación con terminaciones LF estándar
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf

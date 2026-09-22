@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""
+probe_hardware.py - Deteccion de GPU y recomendacion de perfil para ComfyUI.
+
+Emite un unico objeto JSON por stdout. No asume ningun fabricante, modelo ni
+cantidad de VRAM: si un dato no se puede determinar se reporta como null y
+quien consuma el JSON decide que hacer. Nunca inventa valores por defecto.
+"""
+
+import json
+import re
+import shutil
+import subprocess
+import sys
+
+# Indices de ruedas de PyTorch conocidos y validados. Cualquier version de CUDA
+# fuera de este mapa se rechaza en lugar de caer silenciosamente a otra.
+CUDA_WHEEL_INDEXES = {
+    "12.4": "https://download.pytorch.org/whl/cu124",
+    "12.6": "https://download.pytorch.org/whl/cu126",
+    "12.8": "https://download.pytorch.org/whl/cu128",
+    "12.9": "https://download.pytorch.org/whl/cu129",
+    "13.0": "https://download.pytorch.org/whl/cu130",
+}
+CPU_WHEEL_INDEX = "https://download.pytorch.org/whl/cpu"
+
+# Capacidad de computo -> nombre de arquitectura.
+COMPUTE_ARCH = {
+    "6.1": "Pascal",
+    "7.0": "Volta",
+    "7.5": "Turing",
+    "8.0": "Ampere",
+    "8.6": "Ampere",
+    "8.7": "Ampere",
+    "8.9": "Ada Lovelace",
+    "9.0": "Hopper",
+    "10.0": "Blackwell",
+    "12.0": "Blackwell",
+}
+
+# Umbrales de capacidad de computo para los aceleradores.
+TRITON_MIN_COMPUTE = 7.0   # triton-windows compila kernels desde Volta.
+SAGE_MIN_COMPUTE = 8.0     # SageAttention requiere sm80+ para cuantizacion INT8.
+
+# Umbral de VRAM (GB) para activar --lowvram por defecto.
+LOWVRAM_MAX_GB = 6.0
+
+
+def _run(cmd, timeout=20):
+    """Ejecuta un comando y devuelve stdout, o None si falla."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    out = result.stdout.strip()
+    return out or None
+
+
+def detect_via_nvidia_smi():
+    """
+    Consulta nvidia-smi. Intenta primero con compute_cap (driver moderno) y
+    reintenta sin ese campo: los drivers antiguos no lo soportan y rechazan la
+    consulta entera, con lo que sin reintento se perderia la GPU por completo.
+    """
+    if not shutil.which("nvidia-smi"):
+        return None
+
+    attempts = [
+        (["gpu_name", "memory.total", "driver_version", "compute_cap"], True),
+        (["gpu_name", "memory.total", "driver_version"], False),
+    ]
+
+    for fields, has_compute in attempts:
+        out = _run([
+            "nvidia-smi",
+            "--query-gpu=" + ",".join(fields),
+            "--format=csv,noheader,nounits",
+        ])
+        if not out:
+            continue
+
+        gpus = []
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 2:
+                continue
+
+            try:
+                vram_gb = round(float(parts[1]) / 1024, 1)
+            except ValueError:
+                vram_gb = None
+
+            compute = None
+            if has_compute and len(parts) > 3 and re.fullmatch(r"\d+\.\d+", parts[3]):
+                compute = parts[3]
+
+            gpus.append({
+                "vendor": "NVIDIA",
+                "model": parts[0],
+                "vram_gb": vram_gb,
+                "compute": compute,
+                "driver": parts[2] if len(parts) > 2 else None,
+                "source": "nvidia-smi",
+            })
+
+        if gpus:
+            gpus.sort(key=lambda g: g["vram_gb"] or 0, reverse=True)
+            return gpus[0]
+
+    return None
+
+
+def detect_via_wmi():
+    """
+    Enumera adaptadores de video via CIM. Solo aporta fabricante y modelo:
+    AdapterRAM es un uint32 que se desborda por encima de 4 GB, asi que la
+    VRAM que reporta NO es fiable y se descarta deliberadamente.
+    """
+    if sys.platform != "win32":
+        return None
+
+    ps_cmd = (
+        "Get-CimInstance Win32_VideoController | "
+        "Select-Object Name, DriverVersion | "
+        "ConvertTo-Json -Compress"
+    )
+
+    for shell in ("pwsh", "powershell"):
+        if not shutil.which(shell):
+            continue
+        out = _run([shell, "-NoProfile", "-NonInteractive", "-Command", ps_cmd])
+        if not out:
+            continue
+        try:
+            data = json.loads(out)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            data = [data]
+
+        gpus = []
+        for item in data:
+            name = (item.get("Name") or "").strip()
+            if not name:
+                continue
+            upper = name.upper()
+            if any(k in upper for k in ("NVIDIA", "GEFORCE", "RTX", "GTX", "QUADRO", "TESLA")):
+                vendor = "NVIDIA"
+            elif any(k in upper for k in ("AMD", "RADEON", "FIREPRO")):
+                vendor = "AMD"
+            elif any(k in upper for k in ("INTEL", "ARC", "IRIS")):
+                vendor = "INTEL"
+            else:
+                vendor = "UNKNOWN"
+
+            gpus.append({
+                "vendor": vendor,
+                "model": name,
+                "vram_gb": None,          # No fiable via WMI.
+                "compute": None,
+                "driver": (item.get("DriverVersion") or "").strip() or None,
+                "source": "wmi",
+            })
+
+        if gpus:
+            rank = {"NVIDIA": 0, "AMD": 1, "INTEL": 2, "UNKNOWN": 3}
+            gpus.sort(key=lambda g: rank.get(g["vendor"], 9))
+            return gpus[0]
+
+    return None
+
+
+def pick_cuda_version(compute):
+    """
+    Elige la version de CUDA segun la capacidad de computo.
+    Blackwell (sm_100 / sm_120) no tiene kernels en ruedas anteriores a cu128.
+    """
+    if compute is None:
+        # Sin capacidad conocida, el objetivo conservador que cubre Turing->Ada.
+        return "12.6"
+    if compute >= 10.0:
+        return "12.8"
+    if compute >= 7.5:
+        return "12.6"
+    return "12.4"
+
+
+def build_recommendation(gpu):
+    vendor = gpu.get("vendor") or "UNKNOWN"
+    model = gpu.get("model") or "Desconocido"
+    vram_gb = gpu.get("vram_gb")
+    compute_str = gpu.get("compute")
+
+    compute = None
+    if compute_str:
+        try:
+            compute = float(compute_str)
+        except (TypeError, ValueError):
+            compute = None
+
+    arch = COMPUTE_ARCH.get(compute_str) if compute_str else None
+
+    rec = {
+        "vendor": vendor,
+        "model": model,
+        "vram_gb": vram_gb,
+        "arch": arch,
+        "cuda_compute": compute_str,
+        "driver": gpu.get("driver"),
+        "detection_source": gpu.get("source", "none"),
+        "accelerator": "cpu",
+        "cuda_version": None,
+        "torch_index_url": CPU_WHEEL_INDEX,
+        "triton": False,
+        "sage_attention": False,
+        "lowvram": False,
+        "highvram": False,
+        "preview_method": "auto",
+        "profile": "cpu-only",
+        "supported": False,
+        "warnings": [],
+        "summary": "",
+    }
+
+    if vendor == "NVIDIA":
+        rec["accelerator"] = "cuda"
+        rec["supported"] = True
+
+        cuda_version = pick_cuda_version(compute)
+        rec["cuda_version"] = cuda_version
+        rec["torch_index_url"] = CUDA_WHEEL_INDEXES[cuda_version]
+
+        if compute is None:
+            rec["warnings"].append(
+                "No se pudo determinar la capacidad de computo (driver antiguo o "
+                "nvidia-smi ausente). Se asume un objetivo conservador (CUDA 12.6) "
+                "y se desactivan los aceleradores. Forzalo con: setup --cuda <version>."
+            )
+        else:
+            rec["triton"] = compute >= TRITON_MIN_COMPUTE
+            rec["sage_attention"] = compute >= SAGE_MIN_COMPUTE
+            if not rec["sage_attention"]:
+                rec["warnings"].append(
+                    "SageAttention requiere sm_80 o superior; esta GPU es sm_"
+                    + str(compute_str) + "."
+                )
+
+        if vram_gb is None:
+            rec["warnings"].append(
+                "No se pudo determinar la VRAM. Se usa el modo normal; si aparecen "
+                "errores de memoria ejecuta: start --lowvram"
+            )
+            vram_label = "VRAM desconocida"
+        else:
+            if vram_gb < LOWVRAM_MAX_GB:
+                rec["lowvram"] = True
+            vram_label = str(vram_gb) + " GB"
+
+        vram_slug = (str(int(vram_gb)) + "gb") if vram_gb else "unknown"
+        parts = ["nvidia"]
+        if arch:
+            parts.append(arch.lower().replace(" ", ""))
+        parts.append(vram_slug)
+        rec["profile"] = "-".join(parts)
+
+        accel = []
+        if rec["triton"]:
+            accel.append("Triton")
+        if rec["sage_attention"]:
+            accel.append("SageAttention")
+        accel_label = ", ".join(accel) if accel else "sin aceleradores adicionales"
+
+        rec["summary"] = (
+            model + " (" + vram_label
+            + ((", " + arch) if arch else "") + "). "
+            + "PyTorch CUDA " + cuda_version + ", " + accel_label + ". "
+            + "Modo de memoria por defecto: "
+            + ("lowvram" if rec["lowvram"] else "normal") + "."
+        )
+
+    elif vendor in ("AMD", "INTEL"):
+        rec["profile"] = "amd-unsupported" if vendor == "AMD" else "intel-unsupported"
+        alt = "ROCm (Linux) o DirectML/ZLUDA" if vendor == "AMD" else "IPEX o DirectML"
+        rec["warnings"].append(
+            "Este gestor solo automatiza la ruta CUDA. Para " + vendor
+            + " necesitas " + alt + ", que debes configurar manualmente."
+        )
+        rec["summary"] = (
+            model + ": GPU " + vendor + " detectada. No hay ruta acelerada "
+            "automatica; la instalacion usaria PyTorch CPU, muy lento para difusion."
+        )
+
+    else:
+        rec["warnings"].append(
+            "No se detecto GPU dedicada. PyTorch CPU funciona pero es muy lento."
+        )
+        rec["summary"] = (
+            "No se detecto GPU compatible. Se configuraria PyTorch en modo CPU."
+        )
+
+    return rec
+
+
+def main():
+    gpu = detect_via_nvidia_smi() or detect_via_wmi()
+
+    if gpu is None:
+        gpu = {
+            "vendor": "NONE",
+            "model": None,
+            "vram_gb": None,
+            "compute": None,
+            "driver": None,
+            "source": "none",
+        }
+
+    print(json.dumps(build_recommendation(gpu), indent=2))
+
+
+if __name__ == "__main__":
+    main()
