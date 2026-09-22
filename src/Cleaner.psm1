@@ -45,13 +45,33 @@ function Invoke-ComfyReset {
         }
     }
 
-    # 1. Detener procesos huérfanos de ComfyUI o Python dentro de .venv si los hubiera
+    # 1. Detener procesos de ComfyUI que sigan vivos.
+    #
+    # No basta con filtrar por la ruta del ejecutable: cuando uv crea el venv,
+    # .venv\Scripts\python.exe es solo un trampolin y el proceso real corre
+    # bajo el interprete base de uv (en %APPDATA%\uv\python\...). Filtrar por
+    # Path dejaba vivo justo al proceso que mantiene bloqueados los archivos
+    # de .venv y ComfyUI, y el borrado fallaba de forma intermitente.
+    # Por eso se busca en la linea de comandos, que si referencia el proyecto.
     Write-Info "Comprobando procesos en ejecución..."
     try {
-        Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {
-            $_.Path -and $_.Path.StartsWith($rootDir, [System.StringComparison]::OrdinalIgnoreCase)
-        } | Stop-Process -Force -ErrorAction SilentlyContinue
-    } catch { }
+        $targets = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.CommandLine -and $_.CommandLine -like "*$rootDir*") -or
+                ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($rootDir, [System.StringComparison]::OrdinalIgnoreCase))
+            })
+
+        if ($targets.Count -gt 0) {
+            Write-Info "Deteniendo $($targets.Count) proceso(s) de ComfyUI..."
+            foreach ($t in $targets) {
+                Stop-Process -Id $t.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+            # Dar tiempo a que Windows libere los descriptores antes de borrar.
+            Start-Sleep -Milliseconds 800
+        }
+    } catch {
+        Write-WarningMsg "No se pudieron enumerar los procesos: $_"
+    }
 
     # 2. Respaldar modelos si se solicitó -KeepModels
     $tempModelsDir = Join-Path $rootDir "models_backup_$(Get-Date -Format 'yyyyMMdd-HHmmss')"
