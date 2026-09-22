@@ -84,8 +84,10 @@ function Invoke-HardwareProbe {
     Write-KeyVal "Acelerador"   (Format-ConfigValue $probeResult.accelerator)
     Write-KeyVal "CUDA"         (Format-ConfigValue $probeResult.cuda_version "no aplica")
     Write-KeyVal "Indice PyTorch" (Format-ConfigValue $probeResult.torch_index_url)
-    Write-KeyVal "Triton"       $(if ($probeResult.triton) { "si" } else { "no" })
-    Write-KeyVal "SageAttention" $(if ($probeResult.sage_attention) { "si" } else { "no" })
+    foreach ($a in @($probeResult.accelerators)) {
+        $estado = if ($a.enabled) { "si" } else { "no" }
+        Write-KeyVal $a.key "$estado ($($a.reason))"
+    }
     Write-KeyVal "Modo VRAM"    $(if ($probeResult.lowvram) { "lowvram" } else { "normal" })
     Write-KeyVal "Perfil"       (Format-ConfigValue $probeResult.profile)
 
@@ -117,13 +119,23 @@ function Invoke-HardwareProbe {
     $cfg.install.cuda_version    = $probeResult.cuda_version
     $cfg.install.torch_index_url = $probeResult.torch_index_url
 
-    $cfg.optimizations.triton         = [bool]$probeResult.triton
-    $cfg.optimizations.sage_attention = [bool]$probeResult.sage_attention
+    # El registro completo (clave, extra, modulo, flag y motivo) se guarda tal
+    # cual: es lo que consumen setup, upgrade, doctor y start, de modo que no
+    # haya una segunda lista de aceleradores escrita en PowerShell.
+    $cfg.accelerators = @($probeResult.accelerators)
 
     $cfg.runtime.lowvram        = [bool]$probeResult.lowvram
     $cfg.runtime.highvram       = [bool]$probeResult.highvram
-    $cfg.runtime.sage_attention = [bool]$probeResult.sage_attention
     $cfg.runtime.preview_method = $probeResult.preview_method
+
+    # Los aceleradores con flag de arranque llevan ademas un interruptor de
+    # runtime, para poder desactivarlos sin desinstalarlos.
+    foreach ($a in @($probeResult.accelerators)) {
+        if ($a.runtime_flag) {
+            Set-DefaultMember -Object $cfg.runtime -Name $a.key -Default $false
+            $cfg.runtime.($a.key) = [bool]$a.enabled
+        }
+    }
 
     Save-ComfyConfig -Config $cfg
     Write-Success "Perfil guardado en etc/config.json."

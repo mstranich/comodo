@@ -12,7 +12,8 @@ function Start-Comfy {
     param(
         [switch]$LowVRam,
         [switch]$HighVRam,
-        [switch]$NoSage,
+        # Claves del registro que no deben pasar su flag en esta ejecucion.
+        [string[]]$DisableAccelerators = @(),
         [AllowNull()][string]$Listen = $null,
         [int]$Port = 0,
         [string[]]$ExtraArgs = @()
@@ -51,12 +52,25 @@ function Start-Comfy {
         }
     }
 
-    # SageAttention solo se pasa si ademas esta realmente instalado, segun lo
-    # que registro el instalador. Pasar el flag sin la libreria aborta ComfyUI.
-    $sageInstalled = [bool]$config.optimizations.sage_attention
-    $useSage = (-not $NoSage) -and [bool]$config.runtime.sage_attention -and $sageInstalled
-    if ((-not $NoSage) -and [bool]$config.runtime.sage_attention -and -not $sageInstalled) {
-        Write-WarningMsg "sage_attention pedido pero no instalado; se inicia sin el."
+    # Flags de arranque de los aceleradores. Cada uno se pasa solo si el
+    # perfil lo tiene habilitado (esta instalado) Y el interruptor de runtime
+    # lo pide: pasar --use-sage-attention sin la libreria aborta ComfyUI.
+    $accelFlags = @()
+    $accelActivos = @()
+    foreach ($a in @($config.accelerators)) {
+        if (-not $a.runtime_flag) { continue }
+        if ($DisableAccelerators -contains $a.key) { continue }
+        $pedido = $true
+        if ($config.runtime.PSObject.Properties[$a.key]) {
+            $pedido = [bool]$config.runtime.($a.key)
+        }
+        if (-not $pedido) { continue }
+        if (-not $a.enabled) {
+            Write-WarningMsg "$($a.key) pedido pero no instalado; se inicia sin el."
+            continue
+        }
+        $accelFlags += $a.runtime_flag
+        $accelActivos += $a.key
     }
 
     $listenHost = if ($Listen) { $Listen } elseif ($config.runtime.listen) { $config.runtime.listen } else { "127.0.0.1" }
@@ -67,7 +81,7 @@ function Start-Comfy {
     $cmdArgs = @($mainPy)
     if ($useLow)  { $cmdArgs += "--lowvram" }
     if ($useHigh) { $cmdArgs += "--highvram" }
-    if ($useSage) { $cmdArgs += "--use-sage-attention" }
+    if ($accelFlags.Count -gt 0) { $cmdArgs += $accelFlags }
     $cmdArgs += @("--preview-method", $preview)
     $cmdArgs += @("--listen", $listenHost)
     $cmdArgs += @("--port", "$listenPort")
@@ -83,7 +97,7 @@ function Start-Comfy {
     Write-StepHeader "Iniciando ComfyUI"
     Write-KeyVal "GPU"           $gpuLabel
     Write-KeyVal "Modo VRAM"     $vramMode
-    Write-KeyVal "SageAttention" $(if ($useSage) { "activo" } else { "inactivo" })
+    Write-KeyVal "Aceleradores" $(if ($accelActivos.Count -gt 0) { $accelActivos -join ', ' } else { "ninguno" })
     Write-KeyVal "URL"           "http://${listenHost}:${listenPort}"
 
     if ($listenHost -eq "0.0.0.0") {

@@ -122,8 +122,8 @@ function Invoke-ComfyUpgrade {
         }
         else {
             $extras = @($torchExtra)
-            if ($config.optimizations.triton)         { $extras += 'triton' }
-            if ($config.optimizations.sage_attention) { $extras += 'sage' }
+        $wanted = @($config.accelerators | Where-Object { $_.enabled })
+        foreach ($a in $wanted) { $extras += $a.extra }
 
             $syncArgs = @('sync', '--locked', '--inexact', '--project', $rootDir)
             foreach ($e in $extras) { $syncArgs += @('--extra', $e) }

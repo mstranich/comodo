@@ -37,9 +37,82 @@ COMPUTE_ARCH = {
     "12.0": "Blackwell",
 }
 
-# Umbrales de capacidad de computo para los aceleradores.
-TRITON_MIN_COMPUTE = 7.0   # triton-windows compila kernels desde Volta.
-SAGE_MIN_COMPUTE = 8.0     # SageAttention requiere sm80+ para cuantizacion INT8.
+# Registro de aceleradores: unica fuente de verdad del proyecto.
+#
+# Anadir uno solo requiere una fila aqui y un extra en pyproject.toml. El resto
+# del gestor (probe, setup, upgrade, doctor y start) consume esta tabla a
+# traves del JSON que emite este script, en vez de comprobar nombres propios
+# repartidos por los modulos.
+#
+#   key          nombre en etc/config.json
+#   extra        extra de pyproject.toml que instala el paquete
+#   package      nombre de distribucion (solo informativo, para mensajes)
+#   module       modulo a importar para comprobar que funciona
+#   runtime_flag argumento que hay que pasarle a main.py, o None
+#   min_compute  capacidad de computo minima
+#   windows_only si la rueda existe unicamente para Windows
+ACCELERATORS = [
+    {
+        "key": "triton",
+        "extra": "triton",
+        "package": "triton-windows",
+        "module": "triton",
+        "runtime_flag": None,
+        "min_compute": 7.0,        # compila kernels desde Volta
+        "windows_only": True,
+    },
+    {
+        "key": "sage_attention",
+        "extra": "sage",
+        "package": "sageattention",
+        "module": "sageattention",
+        "runtime_flag": "--use-sage-attention",
+        "min_compute": 8.0,        # la cuantizacion INT8 requiere sm_80
+        "windows_only": False,
+    },
+]
+
+# Campos del registro que se propagan al JSON y a etc/config.json.
+_ACCEL_FIELDS = ("key", "extra", "package", "module", "runtime_flag", "min_compute")
+
+
+def evaluate_accelerators(vendor, compute, platform=None):
+    """
+    Decide que aceleradores aplican, con el motivo de cada decision.
+
+    Cada entrada se evalua de forma independiente: antes, un unico bloque
+    condicional apagaba Triton junto con SageAttention, de modo que una GPU
+    Volta (sm_7.0) se quedaba sin Triton pese a superar su propio umbral.
+    """
+    if platform is None:
+        platform = sys.platform
+
+    result = []
+    for accel in ACCELERATORS:
+        entry = {field: accel[field] for field in _ACCEL_FIELDS}
+
+        if vendor != "NVIDIA":
+            enabled, reason = False, "requiere una GPU NVIDIA"
+        elif accel["windows_only"] and platform != "win32":
+            enabled, reason = False, "solo hay ruedas para Windows"
+        elif compute is None:
+            enabled, reason = False, "capacidad de computo desconocida"
+        elif compute < accel["min_compute"]:
+            enabled, reason = (
+                False,
+                "requiere sm_%s y la GPU es sm_%s" % (accel["min_compute"], compute),
+            )
+        else:
+            enabled, reason = (
+                True,
+                "sm_%s cumple el minimo sm_%s" % (compute, accel["min_compute"]),
+            )
+
+        entry["enabled"] = enabled
+        entry["reason"] = reason
+        result.append(entry)
+
+    return result
 
 # Umbral de VRAM (GB) para activar --lowvram por defecto.
 LOWVRAM_MAX_GB = 6.0
@@ -218,8 +291,7 @@ def build_recommendation(gpu):
         "accelerator": "cpu",
         "cuda_version": None,
         "torch_index_url": CPU_WHEEL_INDEX,
-        "triton": False,
-        "sage_attention": False,
+        "accelerators": evaluate_accelerators(vendor, compute),
         "lowvram": False,
         "highvram": False,
         "preview_method": "auto",
@@ -249,13 +321,11 @@ def build_recommendation(gpu):
                 "la soporta, asi que los backends optimizados de comfy_kitchen "
                 "quedaran deshabilitados."
             )
-        else:
-            rec["triton"] = compute >= TRITON_MIN_COMPUTE
-            rec["sage_attention"] = compute >= SAGE_MIN_COMPUTE
-            if not rec["sage_attention"]:
+
+        for accel in rec["accelerators"]:
+            if not accel["enabled"] and compute is not None:
                 rec["warnings"].append(
-                    "SageAttention requiere sm_80 o superior; esta GPU es sm_"
-                    + str(compute_str) + "."
+                    "%s no se instalara: %s." % (accel["package"], accel["reason"])
                 )
 
         if vram_gb is None:
@@ -276,12 +346,8 @@ def build_recommendation(gpu):
         parts.append(vram_slug)
         rec["profile"] = "-".join(parts)
 
-        accel = []
-        if rec["triton"]:
-            accel.append("Triton")
-        if rec["sage_attention"]:
-            accel.append("SageAttention")
-        accel_label = ", ".join(accel) if accel else "sin aceleradores adicionales"
+        enabled = [a["package"] for a in rec["accelerators"] if a["enabled"]]
+        accel_label = ", ".join(enabled) if enabled else "sin aceleradores adicionales"
 
         rec["summary"] = (
             model + " (" + vram_label

@@ -20,9 +20,8 @@ Describe 'New-DefaultConfig' {
         $script:Cfg.install.cuda_version | Should -BeNullOrEmpty
     }
 
-    It 'deja los aceleradores apagados hasta que probe decida' {
-        $script:Cfg.optimizations.triton         | Should -BeFalse
-        $script:Cfg.optimizations.sage_attention | Should -BeFalse
+    It 'no trae registro de aceleradores hasta que probe lo calcule' {
+        @($script:Cfg.accelerators).Count | Should -Be 0
     }
 
     It 'preinstala unicamente ComfyUI-Manager' {
@@ -56,6 +55,35 @@ Describe 'ConvertTo-NormalizedConfig' {
 
         $norm.runtime.port   | Should -Be 9999
         $norm.runtime.listen | Should -Be '0.0.0.0'
+    }
+}
+
+Describe 'Registro de aceleradores' {
+    # Migracion desde el esquema anterior, que tenia una seccion
+    # 'optimizations' con un booleano por acelerador.
+    It 'migra optimizations conservando la eleccion del usuario' {
+        $viejo = [PSCustomObject]@{
+            optimizations = [PSCustomObject]@{ triton = $true; sage_attention = $false }
+        }
+        $norm = ConvertTo-NormalizedConfig -Config $viejo
+
+        $norm.PSObject.Properties['optimizations'] | Should -BeNullOrEmpty
+        (Test-ComfyAcceleratorEnabled -Config $norm -Key 'triton')         | Should -BeTrue
+        (Test-ComfyAcceleratorEnabled -Config $norm -Key 'sage_attention') | Should -BeFalse
+    }
+
+    It 'no pisa un registro ya existente' {
+        $cfg = [PSCustomObject]@{
+            optimizations = [PSCustomObject]@{ triton = $false }
+            accelerators  = @([PSCustomObject]@{ key = 'triton'; enabled = $true })
+        }
+        $norm = ConvertTo-NormalizedConfig -Config $cfg
+        (Test-ComfyAcceleratorEnabled -Config $norm -Key 'triton') | Should -BeTrue
+    }
+
+    It 'devuelve false para una clave ausente en vez de fallar' {
+        $cfg = ConvertTo-NormalizedConfig -Config ([PSCustomObject]@{})
+        (Test-ComfyAcceleratorEnabled -Config $cfg -Key 'inexistente') | Should -BeFalse
     }
 }
 

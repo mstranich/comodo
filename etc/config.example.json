@@ -1,5 +1,5 @@
 {
-  "$comment": "Plantilla base. El comando 'probe' sobrescribe hardware/, install.cuda_version y optimizations/ con lo que detecte en la maquina.",
+  "$comment": "Plantilla base. 'probe' sobrescribe hardware/, install.cuda_version y accelerators/ con lo que detecte en la maquina.",
   "hardware": {
     "vendor": null,
     "model": null,
@@ -18,10 +18,7 @@
     "comfy_repo": "https://github.com/comfyanonymous/ComfyUI.git",
     "install_dir": "ComfyUI"
   },
-  "optimizations": {
-    "triton": false,
-    "sage_attention": false
-  },
+  "accelerators": [],
   "runtime": {
     "lowvram": false,
     "highvram": false,

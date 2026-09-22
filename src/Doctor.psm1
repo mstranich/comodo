@@ -31,11 +31,15 @@ status = {
     "python_version": sys.version.split()[0],
     "torch": None, "cuda_available": False, "cuda_version": None,
     "device_name": None, "vram_gb": None,
-    "triton": None, "triton_error": None,
-    "sage_attention": None, "sage_error": None,
     "aimdo": None, "kitchen": None,
     "torch_error": None,
+    "accelerators": {},
 }
+
+# Los modulos a comprobar llegan como argumento: el registro de aceleradores
+# vive en src/probe_hardware.py y se propaga por etc/config.json, de modo que
+# este script no repite ninguna lista.
+_modules = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 # comfy-aimdo (DynamicVRAM) y comfy-kitchen llegan como dependencias pineadas
 # en el requirements.txt de ComfyUI, no se instalan por separado.
@@ -58,24 +62,29 @@ try:
 except Exception as exc:
     status["torch_error"] = str(exc)
 
-try:
-    import triton
-    status["triton"] = getattr(triton, "__version__", "instalado")
-except Exception as exc:
-    status["triton_error"] = str(exc)
-
-try:
-    import sageattention
-    status["sage_attention"] = getattr(sageattention, "__version__", "instalado")
-except Exception as exc:
-    status["sage_error"] = str(exc)
+for _key, _mod in _modules.items():
+    try:
+        _m = __import__(_mod)
+        status["accelerators"][_key] = {
+            "version": getattr(_m, "__version__", "instalado"), "error": None
+        }
+    except Exception as exc:
+        status["accelerators"][_key] = {"version": None, "error": str(exc)}
 
 print(json.dumps(status))
 '@
 
+    # Mapa clave -> modulo, tomado del registro guardado por 'probe'.
+    $moduleMap = @{}
+    foreach ($a in @($config.accelerators)) {
+        if ($a.PSObject.Properties['module'] -and $a.module) { $moduleMap[$a.key] = $a.module }
+    }
+    $moduleJson = ($moduleMap | ConvertTo-Json -Compress)
+    if (-not $moduleJson) { $moduleJson = '{}' }
+
     $diag = $null
     try {
-        $raw = & $pyExe -c $doctorScript 2>&1
+        $raw = & $pyExe -c $doctorScript $moduleJson 2>&1
         if ($LASTEXITCODE -ne 0) { throw ($raw | Out-String).Trim() }
         $diag = ($raw | Out-String).Trim() | ConvertFrom-Json
     }
@@ -97,18 +106,24 @@ print(json.dumps(status))
 
     # --- Aceleradores: se comparan contra lo que el perfil esperaba ----------
     Write-Host "`n  [Aceleradores]" -ForegroundColor DarkCyan
-    $expectTriton = [bool]$config.optimizations.triton
-    $expectSage   = [bool]$config.optimizations.sage_attention
+    $accelFaltantes = @()
 
-    $tritonState = if ($diag.triton) { "OK (v$($diag.triton))" }
-                   elseif ($expectTriton) { "FALTA (esperado por el perfil)" }
-                   else { "no aplica a esta GPU" }
-    $sageState   = if ($diag.sage_attention) { "OK (v$($diag.sage_attention))" }
-                   elseif ($expectSage) { "FALTA (esperado por el perfil)" }
-                   else { "no aplica a esta GPU" }
-
-    Write-KeyVal "Triton"        $tritonState
-    Write-KeyVal "SageAttention" $sageState
+    if (@($config.accelerators).Count -eq 0) {
+        Write-Host "    (sin registro: ejecuta probe)" -ForegroundColor DarkGray
+    }
+    foreach ($a in @($config.accelerators)) {
+        $found = $null
+        if ($diag.accelerators.PSObject.Properties[$a.key]) {
+            $found = $diag.accelerators.($a.key)
+        }
+        $estado = if ($found -and $found.version) { "OK (v$($found.version))" }
+                  elseif ($a.enabled)             { "FALTA (esperado por el perfil)" }
+                  else                            { "no aplica ($($a.reason))" }
+        Write-KeyVal $a.key $estado
+        if ($a.enabled -and -not ($found -and $found.version)) {
+            $accelFaltantes += $a.key
+        }
+    }
     Write-KeyVal "DynamicVRAM"   $(if ($diag.aimdo) { "OK (comfy-aimdo v$($diag.aimdo))" } else { "no disponible" })
     Write-KeyVal "comfy-kitchen" $(if ($diag.kitchen) { "OK (v$($diag.kitchen))" } else { "no disponible" })
 
@@ -148,8 +163,7 @@ print(json.dumps(status))
     if ($config.hardware.accelerator -eq 'cuda' -and -not $diag.cuda_available) {
         $problems += "se detecto una GPU NVIDIA pero PyTorch no ve CUDA"
     }
-    if ($expectTriton -and -not $diag.triton) { $problems += "falta triton-windows" }
-    if ($expectSage -and -not $diag.sage_attention) { $problems += "falta sageattention" }
+    foreach ($k in $accelFaltantes) { $problems += "falta el acelerador '$k'" }
     if ($cudaOutdated) {
         $problems += "PyTorch esta compilado contra CUDA $installedCuda pero el perfil pide $targetCuda; comfy-kitchen deshabilitara sus backends optimizados (reinstala con: setup --force)"
     }

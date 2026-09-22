@@ -41,26 +41,71 @@ class TestPickCudaVersion:
             assert ph.pick_cuda_version(compute) in ph.CUDA_WHEEL_INDEXES
 
 
+def accel(rec, key):
+    """Devuelve la entrada del registro con esa clave."""
+    return next(a for a in rec["accelerators"] if a["key"] == key)
+
+
+class TestRegistroAceleradores:
+    def test_el_registro_se_emite_completo(self):
+        rec = ph.build_recommendation(gpu(compute="8.6"))
+        claves = {a["key"] for a in rec["accelerators"]}
+        assert claves == {a["key"] for a in ph.ACCELERATORS}
+
+    # Sin estos campos, setup/doctor/start no podrian consumir el registro.
+    @pytest.mark.parametrize(
+        "field", ["key", "extra", "package", "module", "runtime_flag", "min_compute", "enabled", "reason"]
+    )
+    def test_cada_entrada_lleva_los_campos_que_consume_el_gestor(self, field):
+        for a in ph.build_recommendation(gpu())["accelerators"]:
+            assert field in a
+
+    def test_cada_extra_existe_en_pyproject(self):
+        import tomllib
+        from pathlib import Path
+        raw = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        with raw.open("rb") as fh:
+            extras = tomllib.load(fh)["project"]["optional-dependencies"]
+        for a in ph.ACCELERATORS:
+            assert a["extra"] in extras, a["extra"]
+
+    def test_siempre_hay_un_motivo(self):
+        for a in ph.build_recommendation(gpu(compute=None))["accelerators"]:
+            assert a["reason"]
+
+
 class TestAceleradores:
     def test_sage_requiere_sm80(self):
         rec = ph.build_recommendation(gpu(compute="7.5"))
-        assert rec["triton"] is True
-        assert rec["sage_attention"] is False
-        assert any("sm_80" in w for w in rec["warnings"])
+        assert accel(rec, "triton")["enabled"] is True
+        assert accel(rec, "sage_attention")["enabled"] is False
 
     def test_ampere_habilita_ambos(self):
         rec = ph.build_recommendation(gpu(compute="8.6"))
-        assert rec["triton"] is True
-        assert rec["sage_attention"] is True
+        assert accel(rec, "triton")["enabled"] is True
+        assert accel(rec, "sage_attention")["enabled"] is True
         assert rec["warnings"] == []
+
+    # Regresion: un unico bloque condicional apagaba Triton junto con Sage,
+    # asi que una Volta (sm_7.0) se quedaba sin Triton pese a cumplir su
+    # propio umbral de 7.0.
+    def test_volta_conserva_triton(self):
+        rec = ph.build_recommendation(gpu(compute="7.0"))
+        assert accel(rec, "triton")["enabled"] is True
+        assert accel(rec, "sage_attention")["enabled"] is False
 
     # Sin capacidad de computo no se puede garantizar nada: se desactivan y
     # se avisa, en vez de asumir que funcionaran.
     def test_sin_compute_desactiva_aceleradores_y_avisa(self):
         rec = ph.build_recommendation(gpu(compute=None))
-        assert rec["triton"] is False
-        assert rec["sage_attention"] is False
+        assert all(not a["enabled"] for a in rec["accelerators"])
         assert rec["warnings"]
+
+    def test_una_rueda_solo_windows_no_se_ofrece_en_linux(self):
+        entries = ph.evaluate_accelerators("NVIDIA", 8.6, platform="linux")
+        triton = next(a for a in entries if a["key"] == "triton")
+        assert triton["enabled"] is False
+        assert "Windows" in triton["reason"]
 
 
 class TestMemoria:
@@ -85,8 +130,7 @@ class TestNoNvidia:
         rec = ph.build_recommendation(gpu(vendor=vendor, compute=None))
         assert rec["supported"] is False
         assert rec["accelerator"] == "cpu"
-        assert rec["triton"] is False
-        assert rec["sage_attention"] is False
+        assert all(not a["enabled"] for a in rec["accelerators"])
 
     def test_sin_gpu_cae_a_cpu(self):
         rec = ph.build_recommendation(gpu(vendor="NONE", model=None, vram_gb=None, compute=None))

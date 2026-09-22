@@ -51,6 +51,16 @@ El objetivo es CUDA 13.0 desde sm_75 porque `comfy_kitchen` —que ComfyUI trae 
 
 CUDA 13 ya no soporta Pascal ni anteriores, así que esas GPUs se quedan en la rama 12.x.
 
+### Registro de aceleradores
+
+Los aceleradores se declaran en una sola tabla, `ACCELERATORS` en [`src/probe_hardware.py`](src/probe_hardware.py). Cada fila indica su clave, el extra de `pyproject.toml` que lo instala, el módulo con el que se comprueba, el flag que necesita `main.py` y su capacidad de cómputo mínima.
+
+`probe` evalúa esa tabla contra la GPU detectada y guarda el resultado —con el **motivo** de cada decisión— en `etc/config.json`. A partir de ahí, `setup`, `upgrade`, `doctor` y `start` consumen ese registro; ninguno contiene nombres de acelerador escritos en el código.
+
+Añadir uno requiere **dos ediciones**: una fila en la tabla y un extra en `pyproject.toml` (más `uv lock`). Si olvidás el lock, `setup` falla de forma visible gracias a `--locked` en vez de instalar algo sin fijar.
+
+Cada acelerador se evalúa por separado, así que una GPU puede cumplir el umbral de uno y no el de otro (una Turing sm_7.5 recibe Triton pero no SageAttention, que exige sm_80).
+
 ### DynamicVRAM
 
 `comfy-aimdo` (DynamicVRAM) y `comfy-kitchen` vienen **pineados en el `requirements.txt` de ComfyUI**; este gestor no los instala por separado, pero `doctor` informa de su versión.

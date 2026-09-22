@@ -161,8 +161,13 @@ function Invoke-ComfySetup {
 
     $extras = @($torchExtra)
     if (-not $SkipOptimizations -and $isCuda) {
-        if ($config.optimizations.triton)         { $extras += 'triton' }
-        if ($config.optimizations.sage_attention) { $extras += 'sage' }
+        # Los extras salen del registro que guardo 'probe'; anadir un
+        # acelerador no requiere tocar este archivo.
+        $wanted = @($config.accelerators | Where-Object { $_.enabled })
+        foreach ($a in $wanted) { $extras += $a.extra }
+        if (@($config.accelerators).Count -eq 0) {
+            Write-WarningMsg "Sin registro de aceleradores. Ejecuta 'probe' para calcularlo."
+        }
     }
 
     $syncArgs = @('sync', '--locked', '--inexact', '--project', $rootDir)

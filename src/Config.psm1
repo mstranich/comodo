@@ -51,10 +51,9 @@ function New-DefaultConfig {
             comfy_repo      = "https://github.com/comfyanonymous/ComfyUI.git"
             install_dir     = "ComfyUI"
         }
-        optimizations = [PSCustomObject]@{
-            triton         = $false
-            sage_attention = $false
-        }
+        # Lo rellena 'probe' a partir del registro de src/probe_hardware.py.
+        # Vacio significa "todavia sin detectar", no "ninguno aplica".
+        accelerators = @()
         runtime = [PSCustomObject]@{
             lowvram        = $false
             highvram       = $false
@@ -94,15 +93,63 @@ function ConvertTo-NormalizedConfig {
 
     $defaults = New-DefaultConfig
 
-    foreach ($section in @('hardware','install','optimizations','runtime')) {
+    foreach ($section in @('hardware','install','runtime')) {
         Set-DefaultMember -Object $Config -Name $section -Default ([PSCustomObject]@{})
         foreach ($prop in $defaults.$section.PSObject.Properties) {
             Set-DefaultMember -Object $Config.$section -Name $prop.Name -Default $prop.Value
         }
     }
     Set-DefaultMember -Object $Config -Name 'custom_nodes' -Default $defaults.custom_nodes
+    Set-DefaultMember -Object $Config -Name 'accelerators' -Default @()
+
+    # Migracion de configuraciones anteriores al registro de aceleradores.
+    # La seccion 'optimizations' tenia una propiedad booleana por acelerador;
+    # se conserva la eleccion del usuario y se descarta la seccion vieja.
+    $legacy = $Config.PSObject.Properties['optimizations']
+    if ($legacy -and @($Config.accelerators).Count -eq 0) {
+        $migrated = @()
+        foreach ($prop in $legacy.Value.PSObject.Properties) {
+            $migrated += [PSCustomObject]@{
+                key     = $prop.Name
+                enabled = [bool]$prop.Value
+                reason  = 'migrado de optimizations; ejecuta probe para recalcularlo'
+            }
+        }
+        $Config.accelerators = $migrated
+    }
+    if ($legacy) { $Config.PSObject.Properties.Remove('optimizations') }
 
     return $Config
+}
+
+function Get-ComfyAccelerator {
+    <#
+    .SYNOPSIS
+        Devuelve la entrada del registro de aceleradores con esa clave, o $null.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$Config,
+        [Parameter(Mandatory=$true)][string]$Key
+    )
+    # Select-Object -First 1 en vez de [0]: con Set-StrictMode, indexar un
+    # array vacio lanza "Index was outside the bounds of the array".
+    return @($Config.accelerators | Where-Object { $_.key -eq $Key }) |
+        Select-Object -First 1
+}
+
+function Test-ComfyAcceleratorEnabled {
+    <#
+    .SYNOPSIS
+        Indica si un acelerador esta habilitado en el perfil detectado.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$Config,
+        [Parameter(Mandatory=$true)][string]$Key
+    )
+    $accel = Get-ComfyAccelerator -Config $Config -Key $Key
+    return ($null -ne $accel -and [bool]$accel.enabled)
 }
 
 function Get-ComfyConfig {
@@ -203,14 +250,23 @@ function Set-ComfyConfigProperty {
             }
             Write-Success "runtime.listen = $($config.runtime.listen)"
         }
-        '^(sage|sage_attention|sageattention)$' {
-            $config.runtime.sage_attention = [bool]$valObj
-            $config.optimizations.sage_attention = [bool]$valObj
-            Write-Success "sage_attention = $($config.runtime.sage_attention)"
-        }
-        '^(triton)$' {
-            $config.optimizations.triton = [bool]$valObj
-            Write-Success "optimizations.triton = $($config.optimizations.triton)"
+        '^(sage|sage_attention|sageattention|triton)$' {
+            # Una sola rama para todos los aceleradores: la clave sale del
+            # registro, no de un nombre propio escrito en el codigo.
+            $key = if ($keyLower -eq 'triton') { 'triton' } else { 'sage_attention' }
+            $accel = Get-ComfyAccelerator -Config $config -Key $key
+            if ($null -eq $accel) {
+                Write-ErrorMsg "Acelerador '$key' no presente en el perfil."
+                Write-Info "Ejecuta '.\comodo.ps1 probe' para detectarlo."
+                return $false
+            }
+            $accel.enabled = [bool]$valObj
+            # Los que tienen flag de arranque llevan ademas un interruptor de
+            # runtime, para poder desactivarlos sin desinstalarlos.
+            if ($accel.runtime_flag -and $config.runtime.PSObject.Properties[$key]) {
+                $config.runtime.$key = [bool]$valObj
+            }
+            Write-Success "accelerators.$key = $([bool]$valObj)"
         }
         '^(cuda|cuda_version)$' {
             $requested = [string]$valObj
@@ -275,12 +331,12 @@ function Reset-ComfyConfigProperty {
         '^(sage|sage_attention|sageattention)$' {
             # El valor de reposo depende del hardware detectado, no de una
             # preferencia fija: se recupera lo que decidio 'probe'.
-            $detected = [bool]$config.optimizations.sage_attention
+            $detected = Test-ComfyAcceleratorEnabled -Config $config -Key 'sage_attention'
             $config.runtime.sage_attention = $detected
             Write-Success "runtime.sage_attention restablecido a lo detectado: $detected"
         }
         '^(triton)$' {
-            Write-Info "optimizations.triton lo determina el hardware. Ejecuta 'probe' para recalcularlo."
+            Write-Info "Los aceleradores los determina el hardware. Ejecuta 'probe' para recalcularlos."
             return $true
         }
         '^(preview|preview_method)$' {
@@ -294,7 +350,7 @@ function Reset-ComfyConfigProperty {
         '^(all|todo|reset)$' {
             $config.runtime.lowvram        = $defaults.runtime.lowvram
             $config.runtime.highvram       = $defaults.runtime.highvram
-            $config.runtime.sage_attention = [bool]$config.optimizations.sage_attention
+            $config.runtime.sage_attention = Test-ComfyAcceleratorEnabled -Config $config -Key 'sage_attention'
             $config.runtime.preview_method = $defaults.runtime.preview_method
             $config.runtime.listen         = $defaults.runtime.listen
             $config.runtime.port           = $defaults.runtime.port
@@ -341,9 +397,16 @@ function Show-ComfyConfig {
     Write-KeyVal "Python"        (Format-ConfigValue $cfg.install.python_version)
     Write-KeyVal "Directorio"    (Format-ConfigValue $cfg.install.install_dir)
 
-    Write-Host "`n  [Optimizaciones]" -ForegroundColor DarkCyan
-    Write-KeyVal "Triton"         $(if ($cfg.optimizations.triton) { "habilitado" } else { "deshabilitado" })
-    Write-KeyVal "SageAttention"  $(if ($cfg.optimizations.sage_attention) { "habilitado" } else { "deshabilitado" })
+    Write-Host "`n  [Aceleradores]" -ForegroundColor DarkCyan
+    if (@($cfg.accelerators).Count -eq 0) {
+        Write-Host "    (sin detectar: ejecuta probe)" -ForegroundColor DarkGray
+    } else {
+        foreach ($a in @($cfg.accelerators)) {
+            $estado = if ($a.enabled) { "habilitado" } else { "deshabilitado" }
+            if ($a.PSObject.Properties['reason'] -and $a.reason) { $estado += " ($($a.reason))" }
+            Write-KeyVal $a.key $estado
+        }
+    }
 
     Write-Host "`n  [Runtime]" -ForegroundColor DarkCyan
     $vramMode = if ($cfg.runtime.lowvram) { "lowvram" } elseif ($cfg.runtime.highvram) { "highvram" } else { "normal" }
@@ -370,8 +433,11 @@ Export-ModuleMember -Function @(
     'Save-ComfyConfig',
     'New-DefaultConfig',
     'ConvertTo-NormalizedConfig',
+    'Set-DefaultMember',
     'Set-ComfyConfigProperty',
     'Reset-ComfyConfigProperty',
     'Show-ComfyConfig',
-    'Format-ConfigValue'
+    'Format-ConfigValue',
+    'Get-ComfyAccelerator',
+    'Test-ComfyAcceleratorEnabled'
 )

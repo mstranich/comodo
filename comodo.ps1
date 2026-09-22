@@ -156,10 +156,15 @@ try {
                 $extra += $a
             }
 
+            # --no-sage se traduce a la clave del registro, para que el
+            # lanzador siga siendo generico y el flag conserve su significado.
+            $disable = @()
+            if (Test-Flag @('no-sage')) { $disable += 'sage_attention' }
+
             $ok = Start-Comfy `
                 -LowVRam:(Test-Flag @('lowvram')) `
                 -HighVRam:(Test-Flag @('highvram')) `
-                -NoSage:(Test-Flag @('no-sage')) `
+                -DisableAccelerators:$disable `
                 -Listen:$listen -Port:$port -ExtraArgs:$extra
         }
 
