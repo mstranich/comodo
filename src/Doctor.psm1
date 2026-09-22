@@ -31,8 +31,18 @@ status = {
     "device_name": None, "vram_gb": None,
     "triton": None, "triton_error": None,
     "sage_attention": None, "sage_error": None,
+    "aimdo": None, "kitchen": None,
     "torch_error": None,
 }
+
+# comfy-aimdo (DynamicVRAM) y comfy-kitchen llegan como dependencias pineadas
+# en el requirements.txt de ComfyUI, no se instalan por separado.
+import importlib.metadata as _md
+for _key, _dist in (("aimdo", "comfy-aimdo"), ("kitchen", "comfy-kitchen")):
+    try:
+        status[_key] = _md.version(_dist)
+    except Exception:
+        pass
 
 try:
     import torch
@@ -97,6 +107,25 @@ print(json.dumps(status))
 
     Write-KeyVal "Triton"        $tritonState
     Write-KeyVal "SageAttention" $sageState
+    Write-KeyVal "DynamicVRAM"   $(if ($diag.aimdo) { "OK (comfy-aimdo v$($diag.aimdo))" } else { "no disponible" })
+    Write-KeyVal "comfy-kitchen" $(if ($diag.kitchen) { "OK (v$($diag.kitchen))" } else { "no disponible" })
+
+    # comfy-kitchen deshabilita sus backends optimizados si el build de CUDA de
+    # PyTorch es anterior al objetivo del perfil. Es un fallo silencioso: todo
+    # arranca bien y solo se pierde rendimiento, asi que se comprueba aqui.
+    $targetCuda    = $config.install.cuda_version
+    $installedCuda = $diag.cuda_version
+    $cudaOutdated  = $false
+    if ($targetCuda -and $installedCuda) {
+        try {
+            $cudaOutdated = ([version]$installedCuda -lt [version]$targetCuda)
+        } catch { $cudaOutdated = $false }
+    }
+    Write-KeyVal "Build CUDA" $(
+        if (-not $installedCuda) { "desconocido" }
+        elseif ($cudaOutdated)   { "$installedCuda (el perfil pide $targetCuda)" }
+        else                     { "$installedCuda" }
+    )
 
     Write-Host "`n  [ComfyUI]" -ForegroundColor DarkCyan
     $mainPy = Join-Path $comfyDir "main.py"
@@ -119,6 +148,9 @@ print(json.dumps(status))
     }
     if ($expectTriton -and -not $diag.triton) { $problems += "falta triton-windows" }
     if ($expectSage -and -not $diag.sage_attention) { $problems += "falta sageattention" }
+    if ($cudaOutdated) {
+        $problems += "PyTorch esta compilado contra CUDA $installedCuda pero el perfil pide $targetCuda; comfy-kitchen deshabilitara sus backends optimizados (reinstala con: setup --force)"
+    }
     if (-not (Test-Path -LiteralPath $mainPy)) { $problems += "falta el codigo de ComfyUI" }
 
     Write-Host ""

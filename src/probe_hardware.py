@@ -177,16 +177,20 @@ def detect_via_wmi():
 def pick_cuda_version(compute):
     """
     Elige la version de CUDA segun la capacidad de computo.
-    Blackwell (sm_100 / sm_120) no tiene kernels en ruedas anteriores a cu128.
+
+    Desde sm_75 (serie 20) se apunta a CUDA 13.0 porque comfy_kitchen, que
+    ComfyUI trae en sus requirements, deshabilita sus backends 'cuda' y
+    'triton' si PyTorch se compilo contra una version anterior: con cu126 los
+    reporta como available=True, disabled=True y se pierden los kernels
+    optimizados. CUDA 13 ya no soporta Pascal y anteriores (sm < 7.5), que se
+    quedan en la rama 12.x.
     """
     if compute is None:
-        # Sin capacidad conocida, el objetivo conservador que cubre Turing->Ada.
+        # Sin capacidad conocida, el objetivo que cubre de Pascal en adelante.
         return "12.6"
-    if compute >= 10.0:
-        return "12.8"
     if compute >= 7.5:
-        return "12.6"
-    return "12.4"
+        return "13.0"
+    return "12.6"
 
 
 def build_recommendation(gpu):
@@ -239,6 +243,12 @@ def build_recommendation(gpu):
                 "No se pudo determinar la capacidad de computo (driver antiguo o "
                 "nvidia-smi ausente). Se asume un objetivo conservador (CUDA 12.6) "
                 "y se desactivan los aceleradores. Forzalo con: setup --cuda <version>."
+            )
+        elif compute < 7.5:
+            rec["warnings"].append(
+                "GPU anterior a la serie 20 (sm_" + str(compute_str) + "). CUDA 13 no "
+                "la soporta, asi que los backends optimizados de comfy_kitchen "
+                "quedaran deshabilitados."
             )
         else:
             rec["triton"] = compute >= TRITON_MIN_COMPUTE

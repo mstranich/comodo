@@ -40,13 +40,20 @@ Abre `http://127.0.0.1:8188` en el navegador.
 
 | Condición detectada | Consecuencia |
 | :--- | :--- |
-| GPU NVIDIA, cómputo ≥ 10.0 (Blackwell) | PyTorch CUDA 12.8 |
-| GPU NVIDIA, cómputo ≥ 7.5 (Turing → Ada) | PyTorch CUDA 12.6 |
-| GPU NVIDIA, cómputo < 7.5 | PyTorch CUDA 12.4 |
+| GPU NVIDIA, cómputo ≥ 7.5 (serie 20 en adelante) | PyTorch CUDA 13.0 |
+| GPU NVIDIA, cómputo < 7.5 (Pascal y anteriores) | PyTorch CUDA 12.6 |
 | Cómputo ≥ 7.0 | Se instala `triton-windows` |
 | Cómputo ≥ 8.0 | Se instala `sageattention` |
 | VRAM < 6 GB | `--lowvram` queda activo por defecto |
 | GPU AMD / Intel / sin GPU | Se avisa y **no** se instala nada acelerado |
+
+El objetivo es CUDA 13.0 desde sm_75 porque `comfy_kitchen` —que ComfyUI trae en su `requirements.txt`— **deshabilita sus backends `cuda` y `triton`** si PyTorch se compiló contra una versión anterior. Con cu126 los reporta como `available: True, disabled: True` y se pierden los kernels optimizados sin que nada falle de forma visible. `doctor` detecta ese desajuste.
+
+CUDA 13 ya no soporta Pascal ni anteriores, así que esas GPUs se quedan en la rama 12.x.
+
+### DynamicVRAM
+
+`comfy-aimdo` (DynamicVRAM) y `comfy-kitchen` vienen **pineados en el `requirements.txt` de ComfyUI**; este gestor no los instala por separado, pero `doctor` informa de su versión.
 
 Si un dato no se puede determinar (por ejemplo, un driver antiguo que no expone `compute_cap`), el gestor **lo dice y elige la opción conservadora** en lugar de inventar un valor.
 
