@@ -7,11 +7,18 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
-function Invoke-HardwareProbe {
+function Invoke-ProbeScript {
+    <#
+    .SYNOPSIS
+        Ejecuta src/probe_hardware.py y devuelve su JSON ya deserializado.
+    .DESCRIPTION
+        Orden de preferencia del interprete: el venv del proyecto (si existe),
+        luego 'uv run --no-project', luego el python del sistema. El script
+        solo usa la libreria estandar, asi que cualquiera sirve.
+        Devuelve $null si ninguno funciona.
+    #>
     [CmdletBinding()]
-    param([switch]$ShowOnly)
-
-    Write-StepHeader "Deteccion de hardware (probe)"
+    param([string[]]$Arguments = @())
 
     $scriptPath = Join-Path $PSScriptRoot "probe_hardware.py"
     if (-not (Test-Path -LiteralPath $scriptPath)) {
@@ -19,21 +26,17 @@ function Invoke-HardwareProbe {
         return $null
     }
 
-    # Orden de preferencia para el interprete: el venv del proyecto (si ya
-    # existe), luego 'uv run', luego el python del sistema. El script solo usa
-    # la libreria estandar, asi que cualquiera sirve.
     $interpreters = @()
 
     $pyVenv = Find-PythonInVenv
-    if ($pyVenv) { $interpreters += ,@($pyVenv, @($scriptPath)) }
+    if ($pyVenv) { $interpreters += ,@($pyVenv, (@($scriptPath) + $Arguments)) }
 
     $uvExe = Find-UvExecutable
-    if ($uvExe) { $interpreters += ,@($uvExe, @('run','--no-project','python',$scriptPath)) }
+    if ($uvExe) { $interpreters += ,@($uvExe, (@('run','--no-project','python',$scriptPath) + $Arguments)) }
 
     $pySystem = Get-Command "python" -ErrorAction SilentlyContinue
-    if ($pySystem) { $interpreters += ,@($pySystem.Source, @($scriptPath)) }
+    if ($pySystem) { $interpreters += ,@($pySystem.Source, (@($scriptPath) + $Arguments)) }
 
-    $probeResult = $null
     $lastError = $null
 
     foreach ($entry in $interpreters) {
@@ -51,14 +54,97 @@ function Invoke-HardwareProbe {
             }
             $text = ($stdout | Out-String).Trim()
             if (-not $text) { continue }
-            $probeResult = $text | ConvertFrom-Json
-            break
+            return ($text | ConvertFrom-Json)
         }
         catch {
             $lastError = "$_"
             continue
         }
     }
+
+    if ($lastError) { Write-Info "Ultimo error del sondeo: $lastError" }
+    return $null
+}
+
+function Sync-ComfyAcceleratorRegistry {
+    <#
+    .SYNOPSIS
+        Pone al dia etc/config.json con la tabla ACCELERATORS del proyecto.
+    .DESCRIPTION
+        El registro vive en src/probe_hardware.py y se persiste en la
+        configuracion, asi que una config escrita por una version anterior del
+        gestor no conoce los aceleradores anadidos despues. Sin este refresco,
+        'setup' los omitiria en silencio hasta que alguien volviera a ejecutar
+        'probe' a mano.
+
+        No vuelve a sondear el hardware: reevalua la tabla con el vendor y la
+        capacidad de computo que ya estan guardados, de modo que es barato y no
+        depende de que nvidia-smi responda.
+
+        Fusiona en vez de sobrescribir: las claves que ya existian conservan su
+        'enabled' (puede haberlo cambiado el usuario con 'set') y solo se
+        refrescan sus metadatos; las claves nuevas entran con el valor que
+        decide el hardware; las que ya no estan en la tabla se descartan.
+    .OUTPUTS
+        [bool] $true si la configuracion cambio.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][PSCustomObject]$Config)
+
+    $vendor  = if ($Config.hardware.vendor) { $Config.hardware.vendor } else { "UNKNOWN" }
+    $compute = if ($Config.hardware.cuda_compute) { "$($Config.hardware.cuda_compute)" } else { "" }
+
+    $fresh = Invoke-ProbeScript -Arguments @('--accelerators', $vendor, $compute)
+    if ($null -eq $fresh) {
+        Write-WarningMsg "No se pudo releer el registro de aceleradores; se usa el guardado."
+        return $false
+    }
+
+    $previous = @{}
+    foreach ($a in @($Config.accelerators)) { $previous[$a.key] = $a }
+
+    $merged  = @()
+    $added   = @()
+    $removed = @($previous.Keys | Where-Object { $_ -notin @($fresh | ForEach-Object { $_.key }) })
+
+    foreach ($entry in @($fresh)) {
+        if ($previous.ContainsKey($entry.key)) {
+            # Respetar la eleccion previa del usuario para esta clave.
+            $entry.enabled = [bool]$previous[$entry.key].enabled
+        } else {
+            $added += $entry.key
+        }
+        $merged += $entry
+    }
+
+    $changed = ($added.Count -gt 0) -or ($removed.Count -gt 0) -or
+               (@($merged).Count -ne @($Config.accelerators).Count)
+
+    $Config.accelerators = $merged
+
+    if ($added.Count -gt 0) {
+        Write-Info "Aceleradores nuevos en el registro: $($added -join ', ')"
+    }
+    if ($removed.Count -gt 0) {
+        Write-Info "Aceleradores retirados del registro: $($removed -join ', ')"
+    }
+
+    return $changed
+}
+
+function Invoke-HardwareProbe {
+    [CmdletBinding()]
+    param([switch]$ShowOnly)
+
+    Write-StepHeader "Deteccion de hardware (probe)"
+
+    $scriptPath = Join-Path $PSScriptRoot "probe_hardware.py"
+    if (-not (Test-Path -LiteralPath $scriptPath)) {
+        Write-ErrorMsg "No se encontro el script de deteccion: $scriptPath"
+        return $null
+    }
+
+    $probeResult = Invoke-ProbeScript
 
     if ($null -eq $probeResult) {
         # Antes habia aqui un fallback que inventaba una GPU concreta. Escribir
@@ -143,4 +229,8 @@ function Invoke-HardwareProbe {
     return $probeResult
 }
 
-Export-ModuleMember -Function 'Invoke-HardwareProbe'
+Export-ModuleMember -Function @(
+    'Invoke-HardwareProbe',
+    'Invoke-ProbeScript',
+    'Sync-ComfyAcceleratorRegistry'
+)

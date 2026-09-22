@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 Import-Module (Join-Path $PSScriptRoot "Config.psm1")
+Import-Module (Join-Path $PSScriptRoot "Probe.psm1")
 
 function Invoke-ComfyDoctor {
     [CmdletBinding()]
@@ -73,6 +74,13 @@ for _key, _mod in _modules.items():
 
 print(json.dumps(status))
 '@
+
+    # Igual que en setup: poner al dia el registro contra la tabla del
+    # proyecto, para que doctor pueda avisar de un acelerador nuevo que
+    # todavia no este instalado.
+    if (Sync-ComfyAcceleratorRegistry -Config $config) {
+        Save-ComfyConfig -Config $config
+    }
 
     # Mapa clave -> modulo, tomado del registro guardado por 'probe'.
     $moduleMap = @{}

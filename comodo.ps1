@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $srcDir = Join-Path $PSScriptRoot "src"
-foreach ($mod in @('Common','Config','Checker','Probe','Installer','Runner','Updater','Doctor','Nodes','Cleaner')) {
+foreach ($mod in @('Common','Config','Checker','Probe','Installer','Runner','Updater','Doctor','Nodes','Accelerators','Cleaner')) {
     Import-Module (Join-Path $srcDir "$mod.psm1") -Force
 }
 
@@ -91,6 +91,9 @@ function Show-Help {
     Write-Host "  $ColorYellow custom-nodes <list|add|remove>$ColorReset (nodes)"
     Write-Host "      Gestiona nodos. Solo ComfyUI-Manager viene preinstalado.`n"
 
+    Write-Host "  $ColorYellow accelerators <list|enable|disable>$ColorReset (accel)"
+    Write-Host "      Gestiona los aceleradores detectados para tu GPU.`n"
+
     Write-Host "  $ColorYellow upgrade $ColorReset (update)     Actualiza ComfyUI, nodos y aceleradores."
     Write-Host "  $ColorYellow doctor $ColorReset               Comprueba el entorno contra el perfil detectado."
     Write-Host "  $ColorYellow reset $ColorReset (uninstall)    Limpia .venv, la instalacion y la config local."
@@ -102,6 +105,8 @@ function Show-Help {
     Write-Host "  .\comodo.ps1 setup"
     Write-Host "  .\comodo.ps1 start"
     Write-Host "  .\comodo.ps1 nodes add https://github.com/user/mi-nodo.git"
+    Write-Host "  .\comodo.ps1 accel list"
+    Write-Host "  .\comodo.ps1 accel disable sage"
     Write-Host "  .\comodo.ps1 set port 8189`n"
 }
 
@@ -205,6 +210,31 @@ try {
                 }
                 default {
                     Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, add, remove."
+                    exit 2
+                }
+            }
+        }
+
+        '^(accelerators|accelerator|accel)$' {
+            $sub = if ($ArgsList.Count -gt 0) { $ArgsList[0].ToLower() } else { "list" }
+            switch -Regex ($sub) {
+                '^(list|ls)$' { $ok = Show-AcceleratorList }
+                '^(enable|on|add)$' {
+                    if ($ArgsList.Count -lt 2) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 accel enable <clave>"
+                        exit 2
+                    }
+                    $ok = Set-AcceleratorEnabled -Name $ArgsList[1] -Enabled $true
+                }
+                '^(disable|off|remove|rm)$' {
+                    if ($ArgsList.Count -lt 2) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 accel disable <clave>"
+                        exit 2
+                    }
+                    $ok = Set-AcceleratorEnabled -Name $ArgsList[1] -Enabled $false
+                }
+                default {
+                    Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, enable, disable."
                     exit 2
                 }
             }

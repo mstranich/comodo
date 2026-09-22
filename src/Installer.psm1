@@ -161,8 +161,14 @@ function Invoke-ComfySetup {
 
     $extras = @($torchExtra)
     if (-not $SkipOptimizations -and $isCuda) {
-        # Los extras salen del registro que guardo 'probe'; anadir un
-        # acelerador no requiere tocar este archivo.
+        # Refrescar el registro contra la tabla del proyecto antes de decidir
+        # los extras: una config escrita por una version anterior del gestor
+        # no conoce los aceleradores anadidos despues, y sin esto quedarian
+        # fuera en silencio.
+        if (Sync-ComfyAcceleratorRegistry -Config $config) {
+            Save-ComfyConfig -Config $config
+        }
+
         $wanted = @($config.accelerators | Where-Object { $_.enabled })
         foreach ($a in $wanted) { $extras += $a.extra }
         if (@($config.accelerators).Count -eq 0) {

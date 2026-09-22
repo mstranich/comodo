@@ -381,6 +381,18 @@ def build_recommendation(gpu):
 
 
 def main():
+    argv = sys.argv[1:]
+    if argv and argv[0] == "--accelerators":
+        vendor = argv[1] if len(argv) > 1 and argv[1] else "UNKNOWN"
+        compute = None
+        if len(argv) > 2 and argv[2]:
+            try:
+                compute = float(argv[2])
+            except ValueError:
+                compute = None
+        print(json.dumps(evaluate_accelerators(vendor, compute), indent=2))
+        return
+
     gpu = detect_via_nvidia_smi() or detect_via_wmi()
 
     if gpu is None:

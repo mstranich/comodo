@@ -84,6 +84,7 @@ Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLU
 | `setup` | `download`, `install` | Clona ComfyUI, crea `.venv` con `uv` e instala PyTorch y los aceleradores aplicables. |
 | `start` | `run` | Inicia ComfyUI con la configuración persistente. |
 | `custom-nodes` | `nodes` | Gestiona nodos Git (`list`, `add`, `remove`). |
+| `accelerators` | `accel` | Lista, activa y desactiva aceleradores (`list`, `enable`, `disable`). |
 | `set <clave> [valor]` | | Guarda ajustes en `etc/config.json`. |
 | `unset <clave>` | `rm` | Restablece ajustes a su valor por defecto. |
 | `config` | `get` | Muestra la configuración activa. |
@@ -141,6 +142,17 @@ Cualquier argumento no reconocido se reenvía tal cual a `main.py` de ComfyUI.
 ```
 
 Los nodos añadidos quedan registrados en `etc/config.json`, de modo que un `setup` sobre una instalación limpia los reconstruye.
+
+### `accelerators` (alias: `accel`)
+```powershell
+.\comodo.ps1 accel list               # Qué hay, si está activo y por qué
+.\comodo.ps1 accel disable sage       # Desactivar
+.\comodo.ps1 accel enable triton      # Activar
+```
+
+La clave se resuelve contra el registro: vale la clave exacta, el nombre del paquete (`triton-windows`) o un prefijo inequívoco (`sage` → `sage_attention`). Activar uno que el hardware no soporta se permite, pero avisa.
+
+Los cambios se aplican con `setup`. `set <clave> on|off` hace lo mismo y acepta las mismas formas.
 
 ### `set` / `unset`
 ```powershell

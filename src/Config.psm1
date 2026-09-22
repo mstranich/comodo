@@ -122,6 +122,46 @@ function ConvertTo-NormalizedConfig {
     return $Config
 }
 
+function Resolve-ComfyAcceleratorKey {
+    <#
+    .SYNOPSIS
+        Traduce lo que escribio el usuario a una clave del registro.
+    .DESCRIPTION
+        Acepta la clave exacta, el nombre del paquete o del modulo, y un
+        prefijo mientras sea inequivoco ('sage' -> 'sage_attention'). Se
+        resuelve contra el registro y no contra una lista de alias escrita a
+        mano, para que un acelerador nuevo funcione sin tocar este archivo.
+    .OUTPUTS
+        [string] la clave, o $null si no hay coincidencia unica.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$Config,
+        [Parameter(Mandatory=$true)][string]$Name
+    )
+
+    $needle = $Name.ToLower().Replace('-', '_')
+    $all    = @($Config.accelerators)
+    if ($all.Count -eq 0) { return $null }
+
+    foreach ($a in $all) {
+        if ($a.key.ToLower() -eq $needle) { return $a.key }
+    }
+    foreach ($a in $all) {
+        foreach ($field in @('package', 'module')) {
+            if ($a.PSObject.Properties[$field] -and
+                "$($a.$field)".ToLower().Replace('-', '_') -eq $needle) {
+                return $a.key
+            }
+        }
+    }
+
+    $prefix = @($all | Where-Object { $_.key.ToLower().StartsWith($needle) })
+    if ($prefix.Count -eq 1) { return $prefix[0].key }
+
+    return $null
+}
+
 function Get-ComfyAccelerator {
     <#
     .SYNOPSIS
@@ -222,6 +262,22 @@ function Set-ComfyConfigProperty {
     elseif ($Value -match '^\d+$')                      { $valObj = [int]$Value }
     else                                                { $valObj = $Value }
 
+    # Los aceleradores se resuelven contra el registro antes del switch: asi
+    # 'set <clave>' funciona con cualquier entrada de la tabla, incluidas las
+    # anadidas despues, sin tener que ampliar ninguna expresion regular.
+    $accelKey = Resolve-ComfyAcceleratorKey -Config $config -Name $keyLower
+    if ($accelKey) {
+        $accel = Get-ComfyAccelerator -Config $config -Key $accelKey
+        $accel.enabled = [bool]$valObj
+        if ($accel.runtime_flag) {
+            Set-DefaultMember -Object $config.runtime -Name $accelKey -Default $false
+            $config.runtime.$accelKey = [bool]$valObj
+        }
+        Save-ComfyConfig -Config $config
+        Write-Success "accelerators.$accelKey = $([bool]$valObj)"
+        return $true
+    }
+
     switch -Regex ($keyLower) {
         '^(lowvram|low-vram)$' {
             $config.runtime.lowvram = [bool]$valObj
@@ -249,24 +305,6 @@ function Set-ComfyConfigProperty {
                 Write-WarningMsg "listen=0.0.0.0 expone ComfyUI a toda la red local, sin autenticacion."
             }
             Write-Success "runtime.listen = $($config.runtime.listen)"
-        }
-        '^(sage|sage_attention|sageattention|triton)$' {
-            # Una sola rama para todos los aceleradores: la clave sale del
-            # registro, no de un nombre propio escrito en el codigo.
-            $key = if ($keyLower -eq 'triton') { 'triton' } else { 'sage_attention' }
-            $accel = Get-ComfyAccelerator -Config $config -Key $key
-            if ($null -eq $accel) {
-                Write-ErrorMsg "Acelerador '$key' no presente en el perfil."
-                Write-Info "Ejecuta '.\comodo.ps1 probe' para detectarlo."
-                return $false
-            }
-            $accel.enabled = [bool]$valObj
-            # Los que tienen flag de arranque llevan ademas un interruptor de
-            # runtime, para poder desactivarlos sin desinstalarlos.
-            if ($accel.runtime_flag -and $config.runtime.PSObject.Properties[$key]) {
-                $config.runtime.$key = [bool]$valObj
-            }
-            Write-Success "accelerators.$key = $([bool]$valObj)"
         }
         '^(cuda|cuda_version)$' {
             $requested = [string]$valObj
@@ -311,6 +349,15 @@ function Reset-ComfyConfigProperty {
     $defaults = New-DefaultConfig
     $keyLower = $Key.ToLower()
 
+    # Restablecer un acelerador = devolverlo a lo que decide el hardware, que
+    # es justo lo que recalcula 'probe'. Aqui se reevalua sin volver a sondear.
+    $accelKey = Resolve-ComfyAcceleratorKey -Config $config -Name $keyLower
+    if ($accelKey) {
+        Write-Info "Los aceleradores los determina el hardware."
+        Write-Info "Ejecuta '.\comodo.ps1 probe' para recalcular '$accelKey'."
+        return $true
+    }
+
     switch -Regex ($keyLower) {
         '^(lowvram|low-vram)$' {
             $config.runtime.lowvram = $false
@@ -327,17 +374,6 @@ function Reset-ComfyConfigProperty {
         '^(listen|host|ip)$' {
             $config.runtime.listen = $defaults.runtime.listen
             Write-Success "runtime.listen restablecido a: $($config.runtime.listen)"
-        }
-        '^(sage|sage_attention|sageattention)$' {
-            # El valor de reposo depende del hardware detectado, no de una
-            # preferencia fija: se recupera lo que decidio 'probe'.
-            $detected = Test-ComfyAcceleratorEnabled -Config $config -Key 'sage_attention'
-            $config.runtime.sage_attention = $detected
-            Write-Success "runtime.sage_attention restablecido a lo detectado: $detected"
-        }
-        '^(triton)$' {
-            Write-Info "Los aceleradores los determina el hardware. Ejecuta 'probe' para recalcularlos."
-            return $true
         }
         '^(preview|preview_method)$' {
             $config.runtime.preview_method = $defaults.runtime.preview_method
@@ -439,5 +475,6 @@ Export-ModuleMember -Function @(
     'Show-ComfyConfig',
     'Format-ConfigValue',
     'Get-ComfyAccelerator',
+    'Resolve-ComfyAcceleratorKey',
     'Test-ComfyAcceleratorEnabled'
 )

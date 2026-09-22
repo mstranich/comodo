@@ -99,3 +99,48 @@ Describe 'Format-ConfigValue' {
         Format-ConfigValue 8188     | Should -Be '8188'
     }
 }
+
+Describe 'Resolve-ComfyAcceleratorKey' {
+    BeforeAll {
+        $script:Reg = [PSCustomObject]@{
+            accelerators = @(
+                [PSCustomObject]@{ key = 'triton'; package = 'triton-windows'; module = 'triton' },
+                [PSCustomObject]@{ key = 'sage_attention'; package = 'sageattention'; module = 'sageattention' }
+            )
+        }
+    }
+
+    It 'acepta la clave exacta' {
+        Resolve-ComfyAcceleratorKey -Config $script:Reg -Name 'sage_attention' | Should -Be 'sage_attention'
+    }
+
+    It 'acepta el nombre del paquete, con o sin guiones' {
+        Resolve-ComfyAcceleratorKey -Config $script:Reg -Name 'triton-windows' | Should -Be 'triton'
+        Resolve-ComfyAcceleratorKey -Config $script:Reg -Name 'sageattention'  | Should -Be 'sage_attention'
+    }
+
+    # 'sage' es el alias que la gente escribe; debe resolver sin que nadie lo
+    # haya declarado como alias en el codigo.
+    It 'acepta un prefijo inequivoco' {
+        Resolve-ComfyAcceleratorKey -Config $script:Reg -Name 'sage' | Should -Be 'sage_attention'
+    }
+
+    It 'rechaza lo que no existe' {
+        Resolve-ComfyAcceleratorKey -Config $script:Reg -Name 'inexistente' | Should -BeNullOrEmpty
+    }
+
+    It 'no falla con el registro vacio' {
+        $vacio = [PSCustomObject]@{ accelerators = @() }
+        Resolve-ComfyAcceleratorKey -Config $vacio -Name 'triton' | Should -BeNullOrEmpty
+    }
+
+    It 'rechaza un prefijo ambiguo en vez de elegir uno' {
+        $ambiguo = [PSCustomObject]@{
+            accelerators = @(
+                [PSCustomObject]@{ key = 'sage_attention' },
+                [PSCustomObject]@{ key = 'sage_other' }
+            )
+        }
+        Resolve-ComfyAcceleratorKey -Config $ambiguo -Name 'sage' | Should -BeNullOrEmpty
+    }
+}
