@@ -2,8 +2,10 @@
 # Doctor.psm1 - Diagnostico del entorno
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
 function Invoke-ComfyDoctor {
     [CmdletBinding()]

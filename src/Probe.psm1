@@ -2,8 +2,10 @@
 # Probe.psm1 - Deteccion de hardware y calibracion automatica del perfil
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
 function Invoke-HardwareProbe {
     [CmdletBinding()]
@@ -35,12 +37,14 @@ function Invoke-HardwareProbe {
     $lastError = $null
 
     foreach ($entry in $interpreters) {
-        $exe  = $entry[0]
-        $args = $entry[1]
+        $exe = $entry[0]
+        # No usar $args: es una variable automatica de PowerShell y asignarla
+        # dentro de una funcion tiene efectos colaterales.
+        $exeArgs = $entry[1]
         try {
             # stderr se conserva y se reporta si todo falla: silenciarlo era lo
             # que antes ocultaba la causa real de una deteccion fallida.
-            $stdout = & $exe @args 2>&1
+            $stdout = & $exe @exeArgs 2>&1
             if ($LASTEXITCODE -ne 0) {
                 $lastError = ($stdout | Out-String).Trim()
                 continue

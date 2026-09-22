@@ -103,13 +103,13 @@ Todos los comandos devuelven un **código de salida** acorde al resultado (`0` c
 ```powershell
 .\comodo.ps1 setup                    # Instalación estándar
 .\comodo.ps1 setup --force            # Recrea el entorno virtual desde cero
-.\comodo.ps1 setup --cuda 12.8        # Fuerza una versión de CUDA concreta
+.\comodo.ps1 setup --cuda 12.6        # Fuerza una versión de CUDA concreta
 .\comodo.ps1 setup --skip-opt         # Omite Triton y SageAttention
 .\comodo.ps1 setup --skip-nodes       # No clona ningún nodo
 .\comodo.ps1 setup --allow-cpu        # Permite instalar en modo CPU
 ```
 
-Versiones de CUDA admitidas: `12.4`, `12.6`, `12.8`, `12.9`, `13.0`. Cualquier otra se **rechaza** con un error en vez de sustituirse en silencio.
+Versiones de CUDA admitidas: `12.6` y `13.0` — las que `pyproject.toml` declara como extras y `uv.lock` fija. Cualquier otra se **rechaza** con un error en vez de sustituirse en silencio.
 
 ### `start`
 ```powershell
@@ -151,6 +151,43 @@ Los nodos añadidos quedan registrados en `etc/config.json`, de modo que un `set
 
 ---
 
+## Reproducibilidad
+
+La capa que este gestor controla (PyTorch y los aceleradores) se declara en `pyproject.toml` y queda fijada en `uv.lock`, ambos versionados. `setup` la instala con:
+
+```
+uv sync --locked --inexact --extra <objetivo>
+```
+
+- **`--locked`** hace que falle de forma visible si el lock no corresponde a `pyproject.toml`, en vez de re-resolver en silencio y producir un entorno distinto al que se probó.
+- **`--inexact`** es imprescindible: sin él, `sync` borraría las dependencias de ComfyUI, que se instalan aparte porque las controla el repositorio upstream.
+
+Las dependencias de ComfyUI se instalan **después** del `sync`, a propósito: ComfyUI controla su propio `requirements.txt` y debe tener la última palabra sobre las dependencias compartidas (`numpy`, `networkx`…), que declara de forma holgada.
+
+Subir de versión es un cambio deliberado del lock, no un efecto secundario de actualizar:
+
+```powershell
+uv lock --upgrade-package sageattention
+```
+
+## Desarrollo
+
+```powershell
+pwsh -File tests/Invoke-Checks.ps1
+```
+
+Ejecuta PSScriptAnalyzer, Pester, pytest y `uv lock --check`. Los módulos de PowerShell se buscan en `.psmodules/` del repositorio, para no depender del perfil del usuario:
+
+```powershell
+New-Item -ItemType Directory -Path .psmodules -Force
+Save-PSResource -Name Pester -Path .psmodules -TrustRepository
+Save-PSResource -Name PSScriptAnalyzer -Path .psmodules -TrustRepository
+```
+
+Lo mismo se ejecuta en CI sobre `windows-latest` (`.github/workflows/ci.yml`).
+
+---
+
 ## Estructura
 
 ```text
@@ -159,6 +196,13 @@ Los nodos añadidos quedan registrados en `etc/config.json`, de modo que un `set
 ├── comfy.ps1                # Alias de comodo.ps1
 ├── etc/
 │   └── config.example.json  # Plantilla (config.json es local y está en .gitignore)
+├── pyproject.toml           # Capa gestionada: objetivos de PyTorch y aceleradores
+├── uv.lock                  # Versiones exactas (versionado)
+├── tests/
+│   ├── Invoke-Checks.ps1    # Lint + pruebas + verificacion del lock
+│   ├── Common.Tests.ps1     # Pester
+│   ├── Config.Tests.ps1     # Pester
+│   └── test_probe_hardware.py  # pytest: matriz de decision del probe
 └── src/
     ├── Common.psm1          # Consola, localización de binarios, índices de CUDA
     ├── Config.psm1          # Carga, normalización y persistencia de configuración

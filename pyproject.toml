@@ -1,0 +1,71 @@
+[project]
+name = "comodo"
+version = "0.1.0"
+description = "Gestor de ComfyUI para Windows"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+
+# La capa base no lleva PyTorch: la rueda concreta depende de la GPU y se
+# elige mediante los extras de abajo. Dejarla aqui obligaria a un indice fijo.
+dependencies = []
+
+[project.optional-dependencies]
+# Objetivos de PyTorch. Son mutuamente excluyentes (ver [tool.uv] conflicts).
+# CUDA 13.0 para sm_75 en adelante: comfy_kitchen deshabilita su backend
+# 'cuda' si PyTorch se compilo contra una version anterior.
+cu130 = ["torch", "torchvision", "torchaudio"]
+# CUDA 12.6 para Pascal y anteriores, que CUDA 13 ya no soporta.
+cu126 = ["torch", "torchvision", "torchaudio"]
+# Ruta sin GPU, solo para 'setup --allow-cpu'.
+cpu = ["torch", "torchvision", "torchaudio"]
+
+# Aceleradores opcionales, separados a proposito: hay GPUs (sm_7.5) que
+# soportan Triton pero no SageAttention, que exige sm_80. No entran en
+# conflicto con los objetivos de CUDA.
+triton = ["triton-windows>=3.8,<4; sys_platform == 'win32'"]
+sage = ["sageattention>=1.0.6,<2"]
+
+[dependency-groups]
+# Herramientas de desarrollo, no se instalan en el entorno de ejecucion.
+dev = ["pytest>=8"]
+
+[tool.uv]
+# uv rechaza resolver dos objetivos de CUDA a la vez; declararlos como
+# conflicto permite que un unico uv.lock cubra los tres.
+conflicts = [
+    [{ extra = "cu130" }, { extra = "cu126" }, { extra = "cpu" }],
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+# 'explicit = true' en los indices hace que solo se consulten para estos
+# paquetes; el resto sigue viniendo de PyPI.
+torch = [
+    { index = "pytorch-cu130", extra = "cu130" },
+    { index = "pytorch-cu126", extra = "cu126" },
+    { index = "pytorch-cpu", extra = "cpu" },
+]
+torchvision = [
+    { index = "pytorch-cu130", extra = "cu130" },
+    { index = "pytorch-cu126", extra = "cu126" },
+    { index = "pytorch-cpu", extra = "cpu" },
+]
+torchaudio = [
+    { index = "pytorch-cu130", extra = "cu130" },
+    { index = "pytorch-cu126", extra = "cu126" },
+    { index = "pytorch-cpu", extra = "cpu" },
+]

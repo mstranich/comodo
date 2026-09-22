@@ -15,7 +15,6 @@ $ColorCyan    = "$ESC[36m"
 $ColorGreen   = "$ESC[32m"
 $ColorYellow  = "$ESC[33m"
 $ColorRed     = "$ESC[31m"
-$ColorMagenta = "$ESC[35m"
 $ColorGray    = "$ESC[90m"
 
 function Get-ProjectRoot {
@@ -165,16 +164,41 @@ function Invoke-UvPip {
     return ($LASTEXITCODE -eq 0)
 }
 
-# Indices de ruedas de PyTorch soportados. Debe mantenerse en sincronia con
-# CUDA_WHEEL_INDEXES en src/probe_hardware.py.
+# Objetivos de PyTorch soportados. Solo se admiten los que pyproject.toml
+# declara como extras y uv.lock fija: ofrecer una version que el lock no
+# cubre daria una instalacion no reproducible. Debe mantenerse en sincronia
+# con CUDA_WHEEL_INDEXES en src/probe_hardware.py y con los extras de
+# pyproject.toml.
 $script:CudaWheelIndexes = [ordered]@{
-    "12.4" = "https://download.pytorch.org/whl/cu124"
     "12.6" = "https://download.pytorch.org/whl/cu126"
-    "12.8" = "https://download.pytorch.org/whl/cu128"
-    "12.9" = "https://download.pytorch.org/whl/cu129"
     "13.0" = "https://download.pytorch.org/whl/cu130"
 }
+$script:CudaExtras = [ordered]@{
+    "12.6" = "cu126"
+    "13.0" = "cu130"
+}
 $script:CpuWheelIndex = "https://download.pytorch.org/whl/cpu"
+$script:CpuExtra = "cpu"
+
+function Get-TorchExtra {
+    <#
+    .SYNOPSIS
+        Devuelve el extra de pyproject.toml para una version de CUDA.
+    .DESCRIPTION
+        Devuelve $null si la version no esta soportada, para que el llamante
+        falle de forma visible en vez de instalar otra cosa.
+    #>
+    [CmdletBinding()]
+    param(
+        # No es obligatorio: la ruta de CPU invoca esta funcion con $null, que
+        # PowerShell convierte a cadena vacia al enlazarlo a un [string].
+        [AllowNull()][AllowEmptyString()][string]$CudaVersion = $null,
+        [switch]$Cpu
+    )
+    if ($Cpu) { return $script:CpuExtra }
+    if (-not (Test-CudaVersionSupported -Version $CudaVersion)) { return $null }
+    return $script:CudaExtras[$CudaVersion]
+}
 
 function Get-SupportedCudaVersions {
     [CmdletBinding()]
@@ -200,7 +224,9 @@ function Get-TorchIndexUrl {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)][AllowNull()][string]$CudaVersion,
+        # No es obligatorio: la ruta de CPU invoca esta funcion con $null, que
+        # PowerShell convierte a cadena vacia al enlazarlo a un [string].
+        [AllowNull()][AllowEmptyString()][string]$CudaVersion = $null,
         [switch]$Cpu
     )
     if ($Cpu) { return $script:CpuWheelIndex }
@@ -259,8 +285,9 @@ Export-ModuleMember -Function @(
     'Get-SupportedCudaVersions',
     'Test-CudaVersionSupported',
     'Get-TorchIndexUrl',
+    'Get-TorchExtra',
     'Test-SafeChildPath'
 ) -Variable @(
     'ColorReset','ColorBold','ColorCyan','ColorGreen',
-    'ColorYellow','ColorRed','ColorMagenta','ColorGray'
+    'ColorYellow','ColorRed','ColorGray'
 )

@@ -1,8 +1,10 @@
 # ==============================================================================
-# Checker.psm1 - Verificación y Resolución de Dependencias del Sistema
+# Checker.psm1 - Verificacion y Resolucion de Dependencias del Sistema
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 
 function Update-SessionPath {
     <#
@@ -31,9 +33,9 @@ function Invoke-PreRequisites {
         [switch]$DryRun = $false
     )
 
-    Write-StepHeader "Comprobación de Dependencias Previas (pre-requisites)"
+    Write-StepHeader "Comprobacion de Dependencias Previas (pre-requisites)"
     if ($DryRun) {
-        Write-Info "Modo DRY-RUN activo: Solo se inspeccionará el sistema, sin realizar cambios."
+        Write-Info "Modo DRY-RUN activo: Solo se inspeccionara el sistema, sin realizar cambios."
     }
 
     $allOk = $true
@@ -43,7 +45,7 @@ function Invoke-PreRequisites {
     if ($psVer.Major -ge 7) {
         Write-Success "PowerShell Core: v$($psVer.ToString())"
     } else {
-        Write-WarningMsg "Estás ejecutando Windows PowerShell $($psVer.Major). Se recomienda PowerShell Core 7+ (pwsh)."
+        Write-WarningMsg "Estas ejecutando Windows PowerShell $($psVer.Major). Se recomienda PowerShell Core 7+ (pwsh)."
     }
 
     # 2. uv (Astral)
@@ -57,12 +59,12 @@ function Invoke-PreRequisites {
         }
     } else {
         $allOk = $false
-        Write-WarningMsg "No se encontró el ejecutable 'uv' en PATH ni en las rutas estándar."
+        Write-WarningMsg "No se encontro el ejecutable 'uv' en PATH ni en las rutas estandar."
 
         if ($DryRun) {
             Write-Info "Para instalarlo ejecuta: winget install --id astral-sh.uv -e"
         } else {
-            $response = Read-Host "¿Deseas instalar 'uv' ahora mismo mediante WinGet? (S/n)"
+            $response = Read-Host "Deseas instalar 'uv' ahora mismo mediante WinGet? (S/n)"
             if ($response -eq "" -or $response -match '^[sSyY]') {
                 Write-Info "Instalando uv con winget..."
                 $wingetProcess = Start-Process -FilePath "winget" -ArgumentList "install --id astral-sh.uv -e --accept-source-agreements --accept-package-agreements" -NoNewWindow -Wait -PassThru
@@ -73,13 +75,13 @@ function Invoke-PreRequisites {
                         Write-Success "uv instalado correctamente: $uvExe"
                         $allOk = $true
                     } else {
-                        Write-WarningMsg "uv se instaló pero requiere reiniciar la terminal para actualizar el PATH."
+                        Write-WarningMsg "uv se instalo pero requiere reiniciar la terminal para actualizar el PATH."
                     }
                 } else {
                     Write-ErrorMsg "Error al ejecutar winget para instalar uv."
                 }
             } else {
-                Write-Info "Instalación omitida por el usuario."
+                Write-Info "Instalacion omitida por el usuario."
             }
         }
     }
@@ -95,12 +97,12 @@ function Invoke-PreRequisites {
         }
     } else {
         $allOk = $false
-        Write-WarningMsg "No se encontró Git en el sistema."
+        Write-WarningMsg "No se encontro Git en el sistema."
 
         if ($DryRun) {
             Write-Info "Para instalarlo ejecuta: winget install --id Git.Git -e"
         } else {
-            $response = Read-Host "¿Deseas instalar 'Git' ahora mismo mediante WinGet? (S/n)"
+            $response = Read-Host "Deseas instalar 'Git' ahora mismo mediante WinGet? (S/n)"
             if ($response -eq "" -or $response -match '^[sSyY]') {
                 Write-Info "Instalando Git con winget..."
                 $wingetProcess = Start-Process -FilePath "winget" -ArgumentList "install --id Git.Git -e --accept-source-agreements --accept-package-agreements" -NoNewWindow -Wait -PassThru
@@ -111,18 +113,18 @@ function Invoke-PreRequisites {
                         Write-Success "Git instalado correctamente: $gitExe"
                         $allOk = $true
                     } else {
-                        Write-WarningMsg "Git se instaló pero requiere reiniciar la terminal para actualizar el PATH."
+                        Write-WarningMsg "Git se instalo pero requiere reiniciar la terminal para actualizar el PATH."
                     }
                 } else {
                     Write-ErrorMsg "Error al ejecutar winget para instalar Git."
                 }
             } else {
-                Write-Info "Instalación de Git omitida por el usuario."
+                Write-Info "Instalacion de Git omitida por el usuario."
             }
         }
     }
 
-    # 4. Conectividad básica a repositorios
+    # 4. Conectividad basica a repositorios
     Write-Info "Verificando conectividad a servicios requeridos..."
     $services = @{
         "GitHub" = "https://github.com"
@@ -132,7 +134,7 @@ function Invoke-PreRequisites {
     foreach ($name in $services.Keys) {
         $url = $services[$name]
         try {
-            $res = Invoke-WebRequest -Uri $url -Method Head -TimeoutSec 5 -ErrorAction Stop
+            Invoke-WebRequest -Uri $url -Method Head -TimeoutSec 5 -ErrorAction Stop | Out-Null
             Write-Success "Conectividad $($name): OK"
         } catch {
             Write-WarningMsg "No se pudo contactar $name ($url): $($_.Exception.Message)"
@@ -141,7 +143,7 @@ function Invoke-PreRequisites {
 
     Write-Host ""
     if ($allOk) {
-        Write-Success "Todas las dependencias previas están listas. Puedes continuar con 'comodo.ps1 probe'."
+        Write-Success "Todas las dependencias previas estan listas. Puedes continuar con 'comodo.ps1 probe'."
     } else {
         Write-WarningMsg "Faltan dependencias para operar con normalidad. Revisa los mensajes anteriores."
     }

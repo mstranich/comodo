@@ -22,10 +22,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
 
 $srcDir = Join-Path $PSScriptRoot "src"
 foreach ($mod in @('Common','Config','Checker','Probe','Installer','Runner','Updater','Doctor','Nodes','Cleaner')) {
-    Import-Module (Join-Path $srcDir "$mod.psm1") -DisableNameChecking -Force
+    Import-Module (Join-Path $srcDir "$mod.psm1") -Force
 }
 
 $ArgsList = @($ArgsList)
@@ -175,7 +176,7 @@ try {
                 Write-ErrorMsg "Uso: .\comodo.ps1 unset <clave>"
                 exit 2
             }
-            $ok = Unset-ComfyConfigProperty -Key $ArgsList[0]
+            $ok = Reset-ComfyConfigProperty -Key $ArgsList[0]
         }
 
         '^(custom-nodes|custom-node|nodes|node)$' {

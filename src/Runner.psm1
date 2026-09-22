@@ -2,8 +2,10 @@
 # Runner.psm1 - Lanzador de ComfyUI
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
 function Start-Comfy {
     [CmdletBinding()]
@@ -90,6 +92,10 @@ function Start-Comfy {
 
     Write-Banner "==> ComfyUI en ejecucion. Ctrl+C para detener." -Level Success
 
+    # Inicializado fuera del try: si la invocacion lanza, con Set-StrictMode
+    # leer una variable sin asignar seria un error adicional que enmascararia
+    # el fallo real.
+    $code = 0
     Push-Location $comfyDir
     try {
         & $pyExe $cmdArgs

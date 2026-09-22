@@ -2,7 +2,9 @@
 # Config.psm1 - Configuracion persistente en etc/config.json
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 
 # Unico nodo preinstalado: el gestor de nodos. Todo lo demas lo elige el usuario.
 $script:DefaultCustomNodes = @(
@@ -72,7 +74,10 @@ function Set-DefaultMember {
         [Parameter(Mandatory=$true)][string]$Name,
         $Default
     )
-    if ($Object.PSObject.Properties.Name -notcontains $Name) {
+    # Se consulta el indexador en vez de '.Properties.Name -notcontains': con
+    # Set-StrictMode, leer .Name sobre una coleccion de propiedades vacia
+    # (un [PSCustomObject]@{} recien creado) lanza excepcion.
+    if ($null -eq $Object.PSObject.Properties[$Name]) {
         $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Default
     }
 }
@@ -95,7 +100,7 @@ function ConvertTo-NormalizedConfig {
             Set-DefaultMember -Object $Config.$section -Name $prop.Name -Default $prop.Value
         }
     }
-    Set-DefaultMember -Object $Config -Name 'custom_nodes' -Default @()
+    Set-DefaultMember -Object $Config -Name 'custom_nodes' -Default $defaults.custom_nodes
 
     return $Config
 }
@@ -242,7 +247,7 @@ function Set-ComfyConfigProperty {
     return $true
 }
 
-function Unset-ComfyConfigProperty {
+function Reset-ComfyConfigProperty {
     [CmdletBinding()]
     param([Parameter(Mandatory=$true, Position=0)][string]$Key)
 
@@ -366,7 +371,7 @@ Export-ModuleMember -Function @(
     'New-DefaultConfig',
     'ConvertTo-NormalizedConfig',
     'Set-ComfyConfigProperty',
-    'Unset-ComfyConfigProperty',
+    'Reset-ComfyConfigProperty',
     'Show-ComfyConfig',
     'Format-ConfigValue'
 )

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    # El gestor es especifico de Windows (rutas .venv\Scripts, triton-windows,
+    # deteccion por CIM), asi que se valida en el sistema donde se ejecuta.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Comprobar que uv.lock corresponde a pyproject.toml
+        # Se valida antes que nada: 'setup' usa 'uv sync --locked' y fallaria
+        # en el usuario final si el lock estuviera desincronizado.
+        run: uv lock --check
+
+      - name: Crear entorno de desarrollo
+        # Solo el grupo dev: instalar PyTorch traeria varios GB y no hace
+        # falta para las pruebas, que no importan torch.
+        run: uv sync --only-group dev
+
+      - name: Cachear modulos de PowerShell
+        id: psmodules
+        uses: actions/cache@v4
+        with:
+          path: .psmodules
+          key: psmodules-${{ runner.os }}-pester-pssa-v1
+
+      - name: Instalar Pester y PSScriptAnalyzer
+        if: steps.psmodules.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path .psmodules -Force | Out-Null
+          Save-PSResource -Name Pester -Path .psmodules -TrustRepository
+          Save-PSResource -Name PSScriptAnalyzer -Path .psmodules -TrustRepository
+
+      - name: Analisis estatico y pruebas
+        shell: pwsh
+        run: pwsh -File tests/Invoke-Checks.ps1

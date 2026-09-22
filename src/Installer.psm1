@@ -2,10 +2,12 @@
 # Installer.psm1 - Descarga y aprovisionamiento de ComfyUI
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Checker.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Probe.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
+Import-Module (Join-Path $PSScriptRoot "Checker.psm1")
+Import-Module (Join-Path $PSScriptRoot "Probe.psm1")
 
 function Install-CustomNodeRepo {
     <#
@@ -93,7 +95,7 @@ function Invoke-ComfySetup {
         $config = Get-ComfyConfig
     }
 
-    # --- 3. Resolver objetivo de PyTorch -------------------------------------
+    # --- 3. Resolver el objetivo de PyTorch ----------------------------------
     if ($CudaVersion) {
         if (-not (Test-CudaVersionSupported -Version $CudaVersion)) {
             Write-ErrorMsg "Version de CUDA no soportada: '$CudaVersion'."
@@ -116,15 +118,12 @@ function Invoke-ComfySetup {
             return $false
         }
         Write-Info "Continuando en modo CPU por peticion explicita (--allow-cpu)."
-        $torchIndex = Get-TorchIndexUrl -CudaVersion $null -Cpu
+        $torchExtra = Get-TorchExtra -CudaVersion $null -Cpu
     }
     else {
-        $torchIndex = $config.install.torch_index_url
-        if (-not $torchIndex) {
-            $torchIndex = Get-TorchIndexUrl -CudaVersion $config.install.cuda_version
-        }
-        if (-not $torchIndex) {
-            Write-ErrorMsg "No hay un indice de PyTorch valido para CUDA '$($config.install.cuda_version)'."
+        $torchExtra = Get-TorchExtra -CudaVersion $config.install.cuda_version
+        if (-not $torchExtra) {
+            Write-ErrorMsg "No hay un objetivo de PyTorch valido para CUDA '$($config.install.cuda_version)'."
             Write-Info "Ejecuta 'probe' de nuevo o fija uno con: setup --cuda <version>"
             return $false
         }
@@ -132,7 +131,7 @@ function Invoke-ComfySetup {
 
     # --- 4. Clonar ComfyUI ---------------------------------------------------
     $comfyDir = Join-Path $rootDir $config.install.install_dir
-    Write-StepHeader "Paso 1/5: Repositorio de ComfyUI"
+    Write-StepHeader "Paso 1/4: Repositorio de ComfyUI"
     if (Test-Path -LiteralPath $comfyDir) {
         Write-Success "ComfyUI ya presente en: $comfyDir"
     } else {
@@ -145,27 +144,41 @@ function Invoke-ComfySetup {
         Write-Success "ComfyUI clonado."
     }
 
-    # --- 5. Entorno virtual --------------------------------------------------
-    Write-StepHeader "Paso 2/5: Entorno virtual (.venv)"
-    $venvDir = Join-Path $rootDir ".venv"
-    $pyVer   = $config.install.python_version
+    # --- 5. Entorno gestionado por uv ----------------------------------------
+    # 'uv sync' crea el .venv e instala PyTorch y los aceleradores exactamente
+    # como los fija uv.lock. --locked hace que falle de forma visible si el
+    # lock no corresponde a pyproject.toml, en vez de re-resolver en silencio
+    # y producir un entorno distinto al que se probo.
+    # --inexact es imprescindible: sin el, sync borraria las dependencias de
+    # ComfyUI, que se instalan aparte porque las controla el repo upstream.
+    Write-StepHeader "Paso 2/4: Entorno y PyTorch (uv sync)"
 
+    $venvDir = Join-Path $rootDir ".venv"
     if ($Force -and (Test-Path -LiteralPath $venvDir)) {
         Write-Info "--force: eliminando el entorno virtual existente..."
         Remove-Item -LiteralPath $venvDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    if (-not (Test-Path -LiteralPath $venvDir)) {
-        Write-Info "Creando entorno virtual con Python $pyVer..."
-        & $uvExe venv $venvDir --python $pyVer
-        if ($LASTEXITCODE -ne 0) {
-            Write-ErrorMsg "Fallo al crear el entorno virtual con uv."
-            return $false
-        }
-        Write-Success "Entorno virtual creado: $venvDir"
-    } else {
-        Write-Success "Entorno virtual existente: $venvDir"
+    $extras = @($torchExtra)
+    if (-not $SkipOptimizations -and $isCuda) {
+        if ($config.optimizations.triton)         { $extras += 'triton' }
+        if ($config.optimizations.sage_attention) { $extras += 'sage' }
     }
+
+    $syncArgs = @('sync', '--locked', '--inexact', '--project', $rootDir)
+    foreach ($e in $extras) { $syncArgs += @('--extra', $e) }
+    if ($config.install.python_version) {
+        $syncArgs += @('--python', $config.install.python_version)
+    }
+
+    Write-Info "Extras: $($extras -join ', ')"
+    & $uvExe @syncArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorMsg "Fallo 'uv sync'."
+        Write-Info "Si editaste pyproject.toml, regenera el lock con: uv lock"
+        return $false
+    }
+    Write-Success "Entorno sincronizado con uv.lock."
 
     $pyExe = Join-Path $venvDir "Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $pyExe)) {
@@ -173,21 +186,11 @@ function Invoke-ComfySetup {
         return $false
     }
 
-    # --- 6. PyTorch ----------------------------------------------------------
-    $targetLabel = if ($isCuda) { "CUDA $($config.install.cuda_version)" } else { "CPU" }
-    Write-StepHeader "Paso 3/5: PyTorch ($targetLabel)"
-    Write-Info "Instalando torch, torchvision y torchaudio desde $torchIndex..."
-    $torchOk = Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments @(
-        'install','torch','torchvision','torchaudio','--index-url',$torchIndex
-    )
-    if (-not $torchOk) {
-        Write-ErrorMsg "Fallo la instalacion de PyTorch."
-        return $false
-    }
-    Write-Success "PyTorch instalado."
-
-    # --- 7. Dependencias del nucleo ------------------------------------------
-    Write-StepHeader "Paso 4/5: Dependencias de ComfyUI"
+    # --- 6. Dependencias del nucleo de ComfyUI -------------------------------
+    # Van despues del sync a proposito: ComfyUI controla su propio
+    # requirements.txt y debe tener la ultima palabra sobre las dependencias
+    # compartidas (numpy, networkx...), que declara de forma holgada.
+    Write-StepHeader "Paso 3/4: Dependencias de ComfyUI"
     $reqFile = Join-Path $comfyDir "requirements.txt"
     if (Test-Path -LiteralPath $reqFile) {
         if (Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments @('install','-r',$reqFile)) {
@@ -200,42 +203,8 @@ function Invoke-ComfySetup {
         Write-WarningMsg "No se encontro requirements.txt en $comfyDir"
     }
 
-    # --- 8. Aceleradores segun hardware --------------------------------------
-    # Cada acelerador se instala solo si el hardware lo soporta, segun lo que
-    # decidio 'probe'. Los flags de optimizations/ son independientes entre si.
-    if ($SkipOptimizations) {
-        Write-Info "Aceleradores omitidos por --skip-opt."
-    }
-    elseif (-not $isCuda) {
-        Write-Info "Sin CUDA: no se instalan aceleradores."
-    }
-    else {
-        Write-StepHeader "Paso 5/5: Aceleradores"
-        $wantTriton = [bool]$config.optimizations.triton
-        $wantSage   = [bool]$config.optimizations.sage_attention
-
-        if (-not $wantTriton -and -not $wantSage) {
-            Write-Info "Tu GPU no reune los requisitos para Triton ni SageAttention. Se omiten."
-        }
-
-        if ($wantTriton) {
-            Write-Info "Instalando triton-windows..."
-            if (-not (Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments @('install','triton-windows'))) {
-                Write-WarningMsg "Fallo triton-windows. ComfyUI funcionara sin el."
-                $config.optimizations.triton = $false
-            }
-        }
-
-        if ($wantSage) {
-            Write-Info "Instalando sageattention..."
-            if (-not (Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments @('install','sageattention'))) {
-                Write-WarningMsg "Fallo sageattention. Se desactiva --use-sage-attention."
-                $config.optimizations.sage_attention = $false
-                $config.runtime.sage_attention = $false
-            }
-        }
-
-        Save-ComfyConfig -Config $config
+    # --- 7. Verificacion -----------------------------------------------------
+    if ($isCuda -and -not $SkipOptimizations) {
         Write-Info "Verificando la instalacion..."
         & $pyExe -c @'
 import torch
@@ -251,11 +220,11 @@ for mod in ("triton", "sageattention"):
 '@
     }
 
-    # --- 9. Nodos personalizados ---------------------------------------------
+    # --- 8. Nodos personalizados ---------------------------------------------
     if ($SkipNodes) {
         Write-Info "Nodos omitidos por --skip-nodes."
     } else {
-        Write-StepHeader "Nodos personalizados"
+        Write-StepHeader "Paso 4/4: Nodos personalizados"
         $customNodesDir = Join-Path $comfyDir "custom_nodes"
         if (-not (Test-Path -LiteralPath $customNodesDir)) {
             New-Item -ItemType Directory -Path $customNodesDir -Force | Out-Null

@@ -2,8 +2,10 @@
 # Updater.psm1 - Actualizacion de ComfyUI, nodos y aceleradores
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
 function Update-GitRepo {
     [CmdletBinding()]
@@ -99,22 +101,41 @@ function Invoke-ComfyUpgrade {
         }
     }
 
-    # --- 3. Aceleradores -----------------------------------------------------
-    # Solo se actualiza lo que el perfil de hardware habilito. Antes se
-    # actualizaba siempre, reinstalando paquetes en maquinas que no los usan.
+    # --- 3. Capa gestionada (PyTorch y aceleradores) -------------------------
+    # Se re-sincroniza contra uv.lock en lugar de hacer 'pip install --upgrade'.
+    # Un --upgrade a ciegas rompia la reproducibilidad: traia la version del
+    # dia, distinta de la que se probo y de la que tenga cualquier otra
+    # maquina. Subir de version es un cambio deliberado del lock
+    # ('uv lock --upgrade-package <nombre>'), no un efecto secundario de
+    # actualizar ComfyUI.
     if ($uvExe -and -not $NodesOnly) {
-        $packages = @()
-        if ($config.optimizations.triton)         { $packages += 'triton-windows' }
-        if ($config.optimizations.sage_attention) { $packages += 'sageattention' }
+        Write-StepHeader "Re-sincronizando la capa gestionada (uv.lock)"
 
-        if ($packages.Count -gt 0) {
-            Write-StepHeader "Actualizando aceleradores"
-            Write-Info "Paquetes: $($packages -join ', ')"
-            if (-not (Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments (@('install','--upgrade') + $packages))) {
-                Write-WarningMsg "Fallo la actualizacion de aceleradores."
+        $torchExtra = if ($config.hardware.accelerator -eq 'cuda') {
+            Get-TorchExtra -CudaVersion $config.install.cuda_version
+        } else {
+            Get-TorchExtra -CudaVersion $null -Cpu
+        }
+
+        if (-not $torchExtra) {
+            Write-WarningMsg "Sin objetivo de PyTorch valido; se omite. Ejecuta 'probe'."
+        }
+        else {
+            $extras = @($torchExtra)
+            if ($config.optimizations.triton)         { $extras += 'triton' }
+            if ($config.optimizations.sage_attention) { $extras += 'sage' }
+
+            $syncArgs = @('sync', '--locked', '--inexact', '--project', $rootDir)
+            foreach ($e in $extras) { $syncArgs += @('--extra', $e) }
+
+            Write-Info "Extras: $($extras -join ', ')"
+            & $uvExe @syncArgs
+            if ($LASTEXITCODE -ne 0) {
+                Write-WarningMsg "Fallo 'uv sync'. Si editaste pyproject.toml, ejecuta: uv lock"
                 $failures++
             } else {
-                Write-Success "Aceleradores al dia."
+                Write-Success "Capa gestionada al dia con uv.lock."
+                Write-Info "Para subir de version: uv lock --upgrade-package <nombre>"
             }
         }
     }

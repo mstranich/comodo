@@ -54,6 +54,12 @@ etc/*.local.json
 etc/*.bak
 etc/config.json.corrupt-*.bak
 
+# Modulos de PowerShell instalados localmente para las pruebas
+.psmodules/
+
+# Cache de pytest
+.pytest_cache/
+
 # IDEs y editores
 .vscode/
 .idea/

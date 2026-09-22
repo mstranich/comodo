@@ -2,8 +2,10 @@
 # Nodes.psm1 - Gestion de nodos personalizados (custom_nodes)
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
 function Get-CustomNodesDirectory {
     $config   = Get-ComfyConfig

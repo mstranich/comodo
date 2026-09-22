@@ -2,8 +2,10 @@
 # Cleaner.psm1 - Limpieza y Restablecimiento Completo (reset / uninstall)
 # ==============================================================================
 
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot "Config.psm1") -DisableNameChecking
+Set-StrictMode -Version Latest
+
+Import-Module (Join-Path $PSScriptRoot "Common.psm1")
+Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 
 function Invoke-ComfyReset {
     [CmdletBinding()]
@@ -21,26 +23,26 @@ function Invoke-ComfyReset {
     $comfyDir = Join-Path $rootDir $config.install.install_dir
     $cfgPath = Join-Path $rootDir "etc\config.json"
 
-    # Verificar confirmación si no viene -Force
+    # Verificar confirmacion si no viene -Force
     if (-not $Force) {
         Write-Host ""
-        Write-WarningMsg "Esta acción eliminará los siguientes componentes para volver a empezar:"
+        Write-WarningMsg "Esta accion eliminara los siguientes componentes para volver a empezar:"
         if (Test-Path -LiteralPath $venvDir) {
             Write-Host "  - Entorno virtual de Python (.venv)" -ForegroundColor Yellow
         }
         if (Test-Path -LiteralPath $comfyDir) {
-            Write-Host "  - Instalación de ComfyUI y todos los nodos clonados (ComfyUI/)" -ForegroundColor Yellow
+            Write-Host "  - Instalacion de ComfyUI y todos los nodos clonados (ComfyUI/)" -ForegroundColor Yellow
         }
         if (-not $KeepConfig -and (Test-Path -LiteralPath $cfgPath)) {
-            Write-Host "  - Archivo de configuración local (etc/config.json)" -ForegroundColor Yellow
+            Write-Host "  - Archivo de configuracion local (etc/config.json)" -ForegroundColor Yellow
         }
         if ($KeepModels) {
-            Write-Host "  * Modelos en ComfyUI/models serán preservados." -ForegroundColor Cyan
+            Write-Host "  * Modelos en ComfyUI/models seran preservados." -ForegroundColor Cyan
         }
         Write-Host ""
-        $answer = Read-Host "¿Estás seguro de que deseas continuar con el restablecimiento? (s/N)"
+        $answer = Read-Host "Estas seguro de que deseas continuar con el restablecimiento? (s/N)"
         if ($answer -notmatch '^(s|si|y|yes)$') {
-            Write-Info "Operación cancelada por el usuario."
+            Write-Info "Operacion cancelada por el usuario."
             return $false
         }
     }
@@ -53,7 +55,7 @@ function Invoke-ComfyReset {
     # Path dejaba vivo justo al proceso que mantiene bloqueados los archivos
     # de .venv y ComfyUI, y el borrado fallaba de forma intermitente.
     # Por eso se busca en la linea de comandos, que si referencia el proyecto.
-    Write-Info "Comprobando procesos en ejecución..."
+    Write-Info "Comprobando procesos en ejecucion..."
     try {
         $targets = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
@@ -73,7 +75,7 @@ function Invoke-ComfyReset {
         Write-WarningMsg "No se pudieron enumerar los procesos: $_"
     }
 
-    # 2. Respaldar modelos si se solicitó -KeepModels
+    # 2. Respaldar modelos si se solicito -KeepModels
     $tempModelsDir = Join-Path $rootDir "models_backup_$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     $modelsMoved = $false
     if ($KeepModels -and (Test-Path -LiteralPath (Join-Path $comfyDir "models"))) {
@@ -112,7 +114,7 @@ function Invoke-ComfyReset {
         Write-Success "Directorio ComfyUI eliminado."
     }
 
-    # Restaurar modelos si correspondía
+    # Restaurar modelos si correspondia
     if ($modelsMoved -and (Test-Path -LiteralPath $tempModelsDir)) {
         $newModels = Join-Path $comfyDir "models"
         New-Item -ItemType Directory -Path $comfyDir -Force | Out-Null
@@ -126,11 +128,11 @@ function Invoke-ComfyReset {
         }
     }
 
-    # 5. Eliminar configuración local etc/config.json si no se indicó -KeepConfig
+    # 5. Eliminar configuracion local etc/config.json si no se indico -KeepConfig
     if (-not $KeepConfig -and (Test-Path -LiteralPath $cfgPath)) {
-        Write-Info "Eliminando configuración local etc/config.json..."
+        Write-Info "Eliminando configuracion local etc/config.json..."
         Remove-Item -LiteralPath $cfgPath -Force -ErrorAction SilentlyContinue
-        Write-Success "Archivo etc/config.json eliminado (se restablecerá en el próximo setup o probe)."
+        Write-Success "Archivo etc/config.json eliminado (se restablecera en el proximo setup o probe)."
     }
 
     Write-Banner "[OK] Restablecimiento completado." -Level Success

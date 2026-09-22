@@ -13,13 +13,12 @@ import shutil
 import subprocess
 import sys
 
-# Indices de ruedas de PyTorch conocidos y validados. Cualquier version de CUDA
-# fuera de este mapa se rechaza en lugar de caer silenciosamente a otra.
+# Objetivos de PyTorch soportados. Solo los que pyproject.toml declara como
+# extras y uv.lock fija: recomendar uno fuera de esta lista produciria una
+# instalacion no reproducible. Una version fuera del mapa se rechaza en lugar
+# de caer silenciosamente a otra.
 CUDA_WHEEL_INDEXES = {
-    "12.4": "https://download.pytorch.org/whl/cu124",
     "12.6": "https://download.pytorch.org/whl/cu126",
-    "12.8": "https://download.pytorch.org/whl/cu128",
-    "12.9": "https://download.pytorch.org/whl/cu129",
     "13.0": "https://download.pytorch.org/whl/cu130",
 }
 CPU_WHEEL_INDEX = "https://download.pytorch.org/whl/cpu"
