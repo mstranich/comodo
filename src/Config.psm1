@@ -118,6 +118,19 @@ function ConvertTo-NormalizedConfig {
     }
     if ($legacy) { $Config.PSObject.Properties.Remove('optimizations') }
 
+    # ComfyUI-Manager dejo de ser un nodo que se clona: desde su version 4 es
+    # un paquete de PyPI que instala 'provision apply'. Si sigue registrado
+    # como nodo git, un aprovisionamiento volveria a clonar el V3 y habria dos
+    # managers a la vez. Se desregistra; la carpeta en disco no se toca, que
+    # es dato del usuario y su borrado es una decision aparte.
+    $legacyManager = @($Config.custom_nodes | Where-Object { $_.name -eq 'ComfyUI-Manager' })
+    if ($legacyManager.Count -gt 0) {
+        $Config.custom_nodes = @($Config.custom_nodes | Where-Object { $_.name -ne 'ComfyUI-Manager' })
+        # Se marca para que Get-ComfyConfig lo persista y avise una sola vez:
+        # este normalizador corre en cada lectura de la configuracion.
+        $script:MigrationApplied = 'ComfyUI-Manager desregistrado como nodo: ahora se instala como paquete.'
+    }
+
     return $Config
 }
 
@@ -200,7 +213,15 @@ function Get-ComfyConfig {
     if (Test-Path -LiteralPath $cfgPath) {
         try {
             $raw = Get-Content -Path $cfgPath -Raw -Encoding UTF8
-            return (ConvertTo-NormalizedConfig -Config ($raw | ConvertFrom-Json))
+            $script:MigrationApplied = $null
+            $normalized = ConvertTo-NormalizedConfig -Config ($raw | ConvertFrom-Json)
+            if ($script:MigrationApplied) {
+                $aviso = $script:MigrationApplied
+                $script:MigrationApplied = $null
+                Save-ComfyConfig -Config $normalized
+                Write-Info $aviso
+            }
+            return $normalized
         }
         catch {
             # No sobrescribir a ciegas: preservar el archivo ilegible para que

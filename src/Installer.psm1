@@ -260,6 +260,15 @@ function Invoke-ComfySetup {
         Write-Info "Esta version de ComfyUI no declara manager_requirements.txt; se omite."
     }
 
+    # Un clon antiguo conviviendo con el paquete significa dos managers
+    # cargando a la vez. No se borra solo: es contenido del usuario.
+    $legacyManagerDir = Join-Path $comfyDir "custom_nodes\ComfyUI-Manager"
+    if (Test-Path -LiteralPath $legacyManagerDir) {
+        Write-WarningMsg "Queda el ComfyUI-Manager antiguo clonado en custom_nodes."
+        Write-WarningMsg "Conviviendo con el paquete, se cargarian dos managers."
+        Write-Info "Quitalo con: .\comodo.ps1 nodes remove ComfyUI-Manager"
+    }
+
     # --- 8. Verificacion -----------------------------------------------------
     if ($isCuda -and -not $SkipOptimizations) {
         Write-Info "Verificando la instalacion..."
