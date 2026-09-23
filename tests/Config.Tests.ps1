@@ -24,10 +24,15 @@ Describe 'New-DefaultConfig' {
         @($script:Cfg.accelerators).Count | Should -Be 0
     }
 
-    It 'preinstala unicamente ComfyUI-Manager' {
-        $nodes = @($script:Cfg.custom_nodes)
-        $nodes.Count   | Should -Be 1
-        $nodes[0].name | Should -Be 'ComfyUI-Manager'
+    # ComfyUI-Manager dejo de ser un nodo clonado: desde la version 4 es un
+    # paquete de PyPI que instala 'provision apply'. Ningun nodo viene
+    # impuesto por defecto.
+    It 'no impone ningun nodo por defecto' {
+        @($script:Cfg.custom_nodes).Count | Should -Be 0
+    }
+
+    It 'el Manager arranca habilitado, ya que ComfyUI lo trae apagado' {
+        $script:Cfg.runtime.enable_manager | Should -BeTrue
     }
 
     It 'escucha solo en localhost por defecto' {
@@ -42,9 +47,10 @@ Describe 'ConvertTo-NormalizedConfig' {
         }
         $norm = ConvertTo-NormalizedConfig -Config $viejo
 
-        $norm.hardware      | Should -Not -BeNullOrEmpty
-        $norm.runtime.port  | Should -Be 8188
-        $norm.custom_nodes  | Should -Not -BeNullOrEmpty
+        $norm.hardware              | Should -Not -BeNullOrEmpty
+        $norm.runtime.port          | Should -Be 8188
+        $norm.runtime.enable_manager | Should -BeTrue
+        $norm.PSObject.Properties['custom_nodes'] | Should -Not -BeNullOrEmpty
     }
 
     It 'respeta los valores que el usuario ya habia definido' {

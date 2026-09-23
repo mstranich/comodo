@@ -61,13 +61,28 @@ Añadir uno requiere **dos ediciones**: una fila en la tabla y un extra en `pypr
 
 Cada acelerador se evalúa por separado, así que una GPU puede cumplir el umbral de uno y no el de otro (una Turing sm_7.5 recibe Triton pero no SageAttention, que exige sm_80).
 
+### ComfyUI-Manager
+
+Desde su **versión 4**, ComfyUI-Manager dejó de ser un nodo que se clona en `custom_nodes/` y pasó a ser un **paquete de PyPI**. Además, ComfyUI 0.37+ lo trae **apagado por defecto**: el argumento cambió de `--disable-manager` (opt-out) a `--enable-manager` (opt-in).
+
+El gestor se adapta a las dos cosas:
+
+- `provision apply` lo instala con `uv pip install -r ComfyUI/manager_requirements.txt`. Se usa **el pin de ComfyUI** (hoy `comfyui_manager==4.2.2`) en lugar de la última de PyPI: es la versión contra la que el núcleo probó, y se actualiza sola al actualizar ComfyUI.
+- `start` pasa `--enable-manager` mientras `flag set manager on` esté activo, que es el valor por defecto.
+
+```powershell
+.\comodo.ps1 flag set manager off    # arrancar sin Manager
+```
+
+`doctor` informa de la versión instalada del paquete.
+
 ### DynamicVRAM
 
 `comfy-aimdo` (DynamicVRAM) y `comfy-kitchen` vienen **pineados en el `requirements.txt` de ComfyUI**; este gestor no los instala por separado, pero `doctor` informa de su versión.
 
 Si un dato no se puede determinar (por ejemplo, un driver antiguo que no expone `compute_cap`), el gestor **lo dice y elige la opción conservadora** en lugar de inventar un valor.
 
-El único nodo preinstalado es **ComfyUI-Manager**. Todo lo demás se añade a mano con `custom-nodes add`.
+**Ningún nodo viene impuesto**: se añaden con `custom-nodes add`.
 
 ### Rutas no automatizadas
 
@@ -91,7 +106,7 @@ Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLU
 | `config` | `get` | Vista de solo lectura de toda la configuración. |
 | `upgrade` | `update` | Actualiza ComfyUI, los nodos y los aceleradores habilitados. |
 | `doctor` | | Compara el entorno real contra el perfil detectado. |
-| `reset` | `uninstall` | Limpia `.venv`, la instalación y la configuración local. |
+| `provision reset` | `reset` | Limpia `.venv`, la instalación y la configuración local. |
 | `help` | `--help`, `-h` | Muestra la ayuda. |
 
 Todos los comandos devuelven un **código de salida** acorde al resultado (`0` correcto, `1` fallo, `2` uso incorrecto), por lo que se pueden encadenar o usar desde scripts.
@@ -164,6 +179,7 @@ Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste
 
 ```powershell
 .\comodo.ps1 flag list
+.\comodo.ps1 flag set manager off     # arranca sin --enable-manager
 .\comodo.ps1 flag set lowvram
 .\comodo.ps1 flag set port 8189
 .\comodo.ps1 flag set listen 0.0.0.0
@@ -178,6 +194,7 @@ Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste
 .\comodo.ps1 provision set cuda 13.0
 .\comodo.ps1 provision set python 3.12
 .\comodo.ps1 provision apply          # instala (alias: install)
+.\comodo.ps1 provision reset          # limpia   (alias: reset)
 ```
 
 **`manager`** — el `config.ini` de **ComfyUI-Manager** (no del núcleo de ComfyUI):
@@ -194,12 +211,13 @@ ComfyUI-Manager lee `config.ini` **al arrancar**, así que los cambios necesitan
 
 Los aceleradores tienen su propio comando (`accel`) y no se tocan desde aquí.
 
-### `reset`
+### `provision reset` (alias: `reset`)
 ```powershell
-.\comodo.ps1 reset                    # Pide confirmación
-.\comodo.ps1 reset --force            # Sin preguntar
-.\comodo.ps1 reset --keep-models      # Preserva los modelos descargados
-.\comodo.ps1 reset --keep-config      # Conserva etc/config.json
+.\comodo.ps1 provision reset              # Pide confirmación
+.\comodo.ps1 reset                        # Lo mismo, más corto
+.\comodo.ps1 provision reset --force      # Sin preguntar
+.\comodo.ps1 provision reset --keep-models # Preserva los modelos descargados
+.\comodo.ps1 provision reset --keep-config # Conserva etc/config.json
 ```
 
 ---

@@ -32,7 +32,7 @@ status = {
     "python_version": sys.version.split()[0],
     "torch": None, "cuda_available": False, "cuda_version": None,
     "device_name": None, "vram_gb": None,
-    "aimdo": None, "kitchen": None,
+    "aimdo": None, "kitchen": None, "manager": None,
     "torch_error": None,
     "accelerators": {},
 }
@@ -45,7 +45,8 @@ _modules = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 # comfy-aimdo (DynamicVRAM) y comfy-kitchen llegan como dependencias pineadas
 # en el requirements.txt de ComfyUI, no se instalan por separado.
 import importlib.metadata as _md
-for _key, _dist in (("aimdo", "comfy-aimdo"), ("kitchen", "comfy-kitchen")):
+for _key, _dist in (("aimdo", "comfy-aimdo"), ("kitchen", "comfy-kitchen"),
+                    ("manager", "comfyui-manager")):
     try:
         status[_key] = _md.version(_dist)
     except Exception:
@@ -134,6 +135,7 @@ print(json.dumps(status))
     }
     Write-KeyVal "DynamicVRAM"   $(if ($diag.aimdo) { "OK (comfy-aimdo v$($diag.aimdo))" } else { "no disponible" })
     Write-KeyVal "comfy-kitchen" $(if ($diag.kitchen) { "OK (v$($diag.kitchen))" } else { "no disponible" })
+    Write-KeyVal "ComfyUI-Manager" $(if ($diag.manager) { "OK (v$($diag.manager))" } else { "no instalado" })
 
     # comfy-kitchen deshabilita sus backends optimizados si el build de CUDA de
     # PyTorch es anterior al objetivo del perfil. Es un fallo silencioso: todo

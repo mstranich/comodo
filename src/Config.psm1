@@ -6,14 +6,10 @@ Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 
-# Unico nodo preinstalado: el gestor de nodos. Todo lo demas lo elige el usuario.
-$script:DefaultCustomNodes = @(
-    [PSCustomObject]@{
-        name    = "ComfyUI-Manager"
-        url     = "https://github.com/Comfy-Org/ComfyUI-Manager.git"
-        enabled = $true
-    }
-)
+# Sin nodos preinstalados. ComfyUI-Manager dejo de ser un nodo clonado: desde
+# la version 4 se distribuye como paquete de PyPI y lo instala 'provision
+# apply' leyendo el pin de ComfyUI (manager_requirements.txt).
+$script:DefaultCustomNodes = @()
 
 function Get-ConfigFilePath {
     $etcDir = Join-Path (Get-ProjectRoot) "etc"
@@ -58,6 +54,9 @@ function New-DefaultConfig {
             lowvram        = $false
             highvram       = $false
             sage_attention = $false
+            # ComfyUI 0.37+ trae el Manager apagado por defecto: antes era
+            # --disable-manager (opt-out) y ahora --enable-manager (opt-in).
+            enable_manager = $true
             preview_method = "auto"
             listen         = "127.0.0.1"
             port           = 8188
@@ -252,7 +251,8 @@ $script:SettingScopes = @{
     flag = @(
         'lowvram', 'low-vram', 'highvram', 'high-vram',
         'listen', 'host', 'ip', 'port', 'puerto',
-        'preview', 'preview_method', 'extra_args', 'extraargs'
+        'preview', 'preview_method', 'extra_args', 'extraargs',
+        'manager', 'enable_manager'
     )
     provision = @(
         'cuda', 'cuda_version', 'python', 'python_version',
@@ -366,6 +366,10 @@ function Set-ComfyConfigProperty {
             }
             Write-Success "runtime.listen = $($config.runtime.listen)"
         }
+        '^(manager|enable_manager)$' {
+            $config.runtime.enable_manager = [bool]$valObj
+            Write-Success "runtime.enable_manager = $($config.runtime.enable_manager)"
+        }
         '^(preview|preview_method)$' {
             $valid = @('auto','latent2rgb','taesd','none')
             if ([string]$valObj -notin $valid) {
@@ -451,6 +455,7 @@ function Reset-ComfyConfigProperty {
         '^(port|puerto)$'            { $config.runtime.port = $defaults.runtime.port }
         '^(listen|host|ip)$'         { $config.runtime.listen = $defaults.runtime.listen }
         '^(preview|preview_method)$' { $config.runtime.preview_method = $defaults.runtime.preview_method }
+        '^(manager|enable_manager)$'  { $config.runtime.enable_manager = $defaults.runtime.enable_manager }
         '^(extra_args|extraargs)$'   { $config.runtime.extra_args = @() }
         '^(python|python_version)$'  { $config.install.python_version = $defaults.install.python_version }
         '^(install_dir|dir)$'        { $config.install.install_dir = $defaults.install.install_dir }
@@ -485,6 +490,7 @@ function Show-SettingScope {
         Write-KeyVal "listen"      (Format-ConfigValue $cfg.runtime.listen)
         Write-KeyVal "port"        (Format-ConfigValue $cfg.runtime.port)
         Write-KeyVal "preview"     (Format-ConfigValue $cfg.runtime.preview_method)
+        Write-KeyVal "manager"     "$($cfg.runtime.enable_manager)"
         Write-KeyVal "extra_args"  $(if (@($cfg.runtime.extra_args).Count -gt 0) { @($cfg.runtime.extra_args) -join ' ' } else { "(ninguno)" })
     }
     else {

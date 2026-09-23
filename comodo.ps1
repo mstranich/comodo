@@ -76,6 +76,19 @@ function Invoke-Provisioning {
         -AllowCpu:(Test-Flag @('allow-cpu','cpu'))
 }
 
+function Invoke-ProvisionReset {
+    <#
+    .SYNOPSIS
+        Limpia la instalacion para volver a empezar.
+    .DESCRIPTION
+        Cuerpo compartido por 'provision reset' y su atajo 'reset'.
+    #>
+    return Invoke-ComfyReset `
+        -Force:(Test-Flag @('force','y','f')) `
+        -KeepConfig:(Test-Flag @('keep-config')) `
+        -KeepModels:(Test-Flag @('keep-models'))
+}
+
 function Show-Help {
     $sep = "=" * 66
     Write-Host "`n$ColorBold$ColorCyan$sep`n Comodo - gestor de ComfyUI (comodo.ps1)`n$sep$ColorReset"
@@ -105,7 +118,7 @@ function Show-Help {
 
     Write-Host "  $ColorYellow provision <list|set|unset> [clave] [valor]$ColorReset (prov)"
     Write-Host "      Ajustes de aprovisionamiento: cuda, python, install_dir, repo."
-    Write-Host "      (etc/config.json)`n"
+    Write-Host "      Acciones: apply (instalar), reset (limpiar).`n"
 
     Write-Host "  $ColorYellow manager <list|set|unset> [clave] [valor]$ColorReset (mgr)"
     Write-Host "      Ajustes de ComfyUI-Manager (su config.ini). Se guardan y"
@@ -121,7 +134,8 @@ function Show-Help {
 
     Write-Host "  $ColorYellow upgrade $ColorReset (update)     Actualiza ComfyUI, nodos y aceleradores."
     Write-Host "  $ColorYellow doctor $ColorReset               Comprueba el entorno contra el perfil detectado."
-    Write-Host "  $ColorYellow reset $ColorReset (uninstall)    Limpia .venv, la instalacion y la config local."
+    Write-Host "  $ColorYellow provision reset $ColorReset (alias: reset)"
+    Write-Host "      Limpia .venv, la instalacion y la config local."
     Write-Host "      Opciones: --force (-y), --keep-models, --keep-config`n"
 
     Write-Host "$ColorBold[EJEMPLOS]$ColorReset"
@@ -206,6 +220,13 @@ try {
                     }
                     $ok = Invoke-Provisioning
                 }
+                '^(reset)$' {
+                    if ($scope -ne 'provision') {
+                        Write-ErrorMsg "'reset' solo existe en 'provision'."
+                        exit 2
+                    }
+                    $ok = Invoke-ProvisionReset
+                }
                 '^(set)$' {
                     if ($ArgsList.Count -lt 2) {
                         Write-ErrorMsg "Uso: .\comodo.ps1 $scope set <clave> [valor]"
@@ -214,7 +235,7 @@ try {
                     $val = if ($ArgsList.Count -gt 2) { $ArgsList[2] } else { $null }
                     $ok = Set-ComfyConfigProperty -Key $ArgsList[1] -Value $val -Scope $scope
                 }
-                '^(unset|reset)$' {
+                '^(unset)$' {
                     if ($ArgsList.Count -lt 2) {
                         Write-ErrorMsg "Uso: .\comodo.ps1 $scope unset <clave>"
                         exit 2
@@ -222,7 +243,7 @@ try {
                     $ok = Reset-ComfyConfigProperty -Key $ArgsList[1] -Scope $scope
                 }
                 default {
-                    $extra = if ($scope -eq 'provision') { ", apply" } else { "" }
+                    $extra = if ($scope -eq 'provision') { ", apply, reset" } else { "" }
                     Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, set, unset$extra."
                     exit 2
                 }
@@ -243,7 +264,7 @@ try {
                     }
                     $ok = Set-ManagerSetting -Key $ArgsList[1] -Value $ArgsList[2]
                 }
-                '^(unset|reset)$' {
+                '^(unset)$' {
                     if ($ArgsList.Count -lt 2) {
                         Write-ErrorMsg "Uso: .\comodo.ps1 manager unset <clave>"
                         exit 2
@@ -316,12 +337,7 @@ try {
 
         '^(doctor)$'          { $ok = Invoke-ComfyDoctor }
 
-        '^(reset|uninstall)$' {
-            $ok = Invoke-ComfyReset `
-                -Force:(Test-Flag @('force','y','f')) `
-                -KeepConfig:(Test-Flag @('keep-config')) `
-                -KeepModels:(Test-Flag @('keep-models'))
-        }
+        '^(reset)$' { $ok = Invoke-ProvisionReset }
 
         '^(help|--help|-h|/\?)$' { Show-Help }
 

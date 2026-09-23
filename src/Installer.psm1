@@ -215,7 +215,25 @@ function Invoke-ComfySetup {
         Write-WarningMsg "No se encontro requirements.txt en $comfyDir"
     }
 
-    # --- 7. Verificacion -----------------------------------------------------
+    # --- 7. ComfyUI-Manager --------------------------------------------------
+    # Desde la version 4 es un paquete de PyPI, no un nodo clonado, y ComfyUI
+    # fija la version que espera en manager_requirements.txt. Se usa ese
+    # archivo en vez de 'install comfyui-manager' suelto para no adelantarse a
+    # lo que el nucleo probo: es la misma logica que aplicamos al resto de sus
+    # dependencias.
+    $managerReq = Join-Path $comfyDir "manager_requirements.txt"
+    if (Test-Path -LiteralPath $managerReq) {
+        Write-Info "Instalando ComfyUI-Manager (pin de ComfyUI)..."
+        if (Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments @('install','-r',$managerReq)) {
+            Write-Success "ComfyUI-Manager instalado."
+        } else {
+            Write-WarningMsg "Fallo la instalacion de ComfyUI-Manager; ComfyUI arrancara sin el."
+        }
+    } else {
+        Write-Info "Esta version de ComfyUI no declara manager_requirements.txt; se omite."
+    }
+
+    # --- 8. Verificacion -----------------------------------------------------
     if ($isCuda -and -not $SkipOptimizations) {
         Write-Info "Verificando la instalacion..."
         & $pyExe -c @'
@@ -232,7 +250,7 @@ for mod in ("triton", "sageattention"):
 '@
     }
 
-    # --- 8. Nodos personalizados ---------------------------------------------
+    # --- 9. Nodos personalizados ---------------------------------------------
     if ($SkipNodes) {
         Write-Info "Nodos omitidos por --skip-nodes."
     } else {

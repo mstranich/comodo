@@ -77,8 +77,16 @@ function Start-Comfy {
     $listenPort = if ($Port -gt 0) { $Port } elseif ($config.runtime.port) { [int]$config.runtime.port } else { 8188 }
     $preview    = if ($config.runtime.preview_method) { $config.runtime.preview_method } else { "auto" }
 
+    # ComfyUI 0.37+ arranca con el Manager apagado salvo que se pida: el
+    # argumento paso de --disable-manager (opt-out) a --enable-manager.
+    $useManager = $false
+    if ($config.runtime.PSObject.Properties['enable_manager']) {
+        $useManager = [bool]$config.runtime.enable_manager
+    }
+
     # --- Construir argumentos ------------------------------------------------
     $cmdArgs = @($mainPy)
+    if ($useManager) { $cmdArgs += "--enable-manager" }
     if ($useLow)  { $cmdArgs += "--lowvram" }
     if ($useHigh) { $cmdArgs += "--highvram" }
     if ($accelFlags.Count -gt 0) { $cmdArgs += $accelFlags }
@@ -98,6 +106,7 @@ function Start-Comfy {
     Write-KeyVal "GPU"           $gpuLabel
     Write-KeyVal "Modo VRAM"     $vramMode
     Write-KeyVal "Aceleradores" $(if ($accelActivos.Count -gt 0) { $accelActivos -join ', ' } else { "ninguno" })
+    Write-KeyVal "Manager"      $(if ($useManager) { "activo (--enable-manager)" } else { "inactivo" })
     Write-KeyVal "URL"           "http://${listenHost}:${listenPort}"
 
     if ($listenHost -eq "0.0.0.0") {
