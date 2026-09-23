@@ -20,7 +20,7 @@ function Invoke-ComfyDoctor {
     $comfyDir = Join-Path $rootDir $config.install.install_dir
 
     if (-not (Test-Path -LiteralPath $pyExe)) {
-        Write-ErrorMsg "No existe el entorno virtual. Ejecuta primero: .\comodo.ps1 setup"
+        Write-ErrorMsg "No existe el entorno virtual. Ejecuta primero: .\comodo.ps1 provision apply"
         return $false
     }
     Write-Success "Entorno virtual: $pyExe"
@@ -75,7 +75,7 @@ for _key, _mod in _modules.items():
 print(json.dumps(status))
 '@
 
-    # Igual que en setup: poner al dia el registro contra la tabla del
+    # Igual que en provision apply: poner al dia el registro contra la tabla del
     # proyecto, para que doctor pueda avisar de un acelerador nuevo que
     # todavia no este instalado.
     if (Sync-ComfyAcceleratorRegistry -Config $config) {
@@ -154,7 +154,7 @@ print(json.dumps(status))
 
     Write-Host "`n  [ComfyUI]" -ForegroundColor DarkCyan
     $mainPy = Join-Path $comfyDir "main.py"
-    Write-KeyVal "Codigo" $(if (Test-Path -LiteralPath $mainPy) { "instalado" } else { "falta (ejecuta setup)" })
+    Write-KeyVal "Codigo" $(if (Test-Path -LiteralPath $mainPy) { "instalado" } else { "falta (ejecuta provision apply)" })
 
     $customNodesDir = Join-Path $comfyDir "custom_nodes"
     if (Test-Path -LiteralPath $customNodesDir) {
@@ -173,7 +173,7 @@ print(json.dumps(status))
     }
     foreach ($k in $accelFaltantes) { $problems += "falta el acelerador '$k'" }
     if ($cudaOutdated) {
-        $problems += "PyTorch esta compilado contra CUDA $installedCuda pero el perfil pide $targetCuda; comfy-kitchen deshabilitara sus backends optimizados (reinstala con: setup --force)"
+        $problems += "PyTorch esta compilado contra CUDA $installedCuda pero el perfil pide $targetCuda; comfy-kitchen deshabilitara sus backends optimizados (reinstala con: provision apply --force)"
     }
     if (-not (Test-Path -LiteralPath $mainPy)) { $problems += "falta el codigo de ComfyUI" }
 
@@ -186,7 +186,7 @@ print(json.dumps(status))
 
     Write-Banner "Se encontraron $($problems.Count) problema(s):" -Level Warning
     foreach ($p in $problems) { Write-WarningMsg $p }
-    Write-Info "Reejecuta '.\comodo.ps1 setup' para repararlos."
+    Write-Info "Reejecuta '.\comodo.ps1 provision apply' para repararlos."
     return $false
 }
 

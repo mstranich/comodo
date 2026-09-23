@@ -15,7 +15,7 @@ function Show-AcceleratorList {
     Write-StepHeader "Aceleradores"
 
     $config = Get-ComfyConfig
-    # Igual que setup y doctor: poner al dia el registro contra la tabla del
+    # Igual que provision apply y doctor: poner al dia el registro contra la tabla del
     # proyecto antes de mostrarlo.
     if (Sync-ComfyAcceleratorRegistry -Config $config) {
         Save-ComfyConfig -Config $config
@@ -101,7 +101,7 @@ function Set-AcceleratorEnabled {
 
     $verbo = if ($Enabled) { "activado" } else { "desactivado" }
     Write-Success "Acelerador '$key' $verbo."
-    Write-Info "Aplica los cambios con: .\comodo.ps1 setup"
+    Write-Info "Aplica los cambios con: .\comodo.ps1 provision apply"
     return $true
 }
 

@@ -134,7 +134,7 @@ function Add-CustomNode {
     $reqFile = Join-Path $targetDir "requirements.txt"
     if (Test-Path -LiteralPath $reqFile) {
         if (-not $uvExe -or -not $pyExe) {
-            Write-WarningMsg "El nodo tiene requirements.txt pero falta uv o el venv; instalalo con 'setup'."
+            Write-WarningMsg "El nodo tiene requirements.txt pero falta uv o el venv; instalalo con 'provision apply'."
         }
         else {
             Write-Info "Instalando dependencias del nodo..."
@@ -146,7 +146,7 @@ function Add-CustomNode {
         }
     }
 
-    # Registrar para que 'setup' lo reconstruya en una instalacion limpia.
+    # Registrar para que 'provision apply' lo reconstruya en una instalacion limpia.
     $config   = Get-ComfyConfig
     $existing = @($config.custom_nodes | Where-Object { $_.name -eq $Name })
     if ($existing.Count -eq 0) {

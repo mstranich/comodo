@@ -45,7 +45,7 @@ function Invoke-ComfyUpgrade {
         return $false
     }
     if (-not $pyExe) {
-        Write-ErrorMsg "No existe el entorno virtual. Ejecuta primero: .\comodo.ps1 setup"
+        Write-ErrorMsg "No existe el entorno virtual. Ejecuta primero: .\comodo.ps1 provision apply"
         return $false
     }
 

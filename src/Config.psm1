@@ -245,7 +245,7 @@ function Save-ComfyConfig {
 }
 
 # Reparto de claves por espacio de nombres. 'flag' son las que terminan
-# siendo argumentos de main.py; 'install' son decisiones de aprovisionamiento
+# siendo argumentos de main.py; 'provision' son decisiones de aprovisionamiento
 # que nunca llegan a la linea de comandos de ComfyUI. Los aceleradores tienen
 # su propio comando ('accel'), por eso no aparecen aqui.
 $script:SettingScopes = @{
@@ -254,7 +254,7 @@ $script:SettingScopes = @{
         'listen', 'host', 'ip', 'port', 'puerto',
         'preview', 'preview_method', 'extra_args', 'extraargs'
     )
-    install = @(
+    provision = @(
         'cuda', 'cuda_version', 'python', 'python_version',
         'install_dir', 'dir', 'repo', 'comfy_repo'
     )
@@ -263,7 +263,7 @@ $script:SettingScopes = @{
 function Get-SettingScope {
     <#
     .SYNOPSIS
-        Devuelve el espacio ('flag' o 'install') al que pertenece una clave.
+        Devuelve el espacio ('flag' o 'provision') al que pertenece una clave.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory=$true)][string]$Key)
@@ -286,7 +286,7 @@ function Assert-SettingScope {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)][string]$Key,
-        [Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope,
+        [Parameter(Mandatory=$true)][ValidateSet('flag','provision')][string]$Scope,
         [Parameter(Mandatory=$true)][PSCustomObject]$Config,
         [Parameter(Mandatory=$true)][string]$Verb
     )
@@ -319,7 +319,7 @@ function Set-ComfyConfigProperty {
     param(
         [Parameter(Mandatory=$true, Position=0)][string]$Key,
         [Parameter(Position=1)][AllowNull()][string]$Value = $null,
-        [Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope
+        [Parameter(Mandatory=$true)][ValidateSet('flag','provision')][string]$Scope
     )
 
     $config = Get-ComfyConfig
@@ -416,7 +416,7 @@ function Reset-ComfyConfigProperty {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true, Position=0)][string]$Key,
-        [Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope
+        [Parameter(Mandatory=$true)][ValidateSet('flag','provision')][string]$Scope
     )
 
     $config   = Get-ComfyConfig
@@ -472,7 +472,7 @@ function Show-SettingScope {
         Lista los ajustes de un espacio con su valor actual.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope)
+    param([Parameter(Mandatory=$true)][ValidateSet('flag','provision')][string]$Scope)
 
     $cfg = Get-ComfyConfig
 
@@ -488,7 +488,7 @@ function Show-SettingScope {
         Write-KeyVal "extra_args"  $(if (@($cfg.runtime.extra_args).Count -gt 0) { @($cfg.runtime.extra_args) -join ' ' } else { "(ninguno)" })
     }
     else {
-        Write-StepHeader "Ajustes de instalacion (etc/config.json)"
+        Write-StepHeader "Ajustes de aprovisionamiento (etc/config.json)"
         Write-KeyVal "cuda"        (Format-ConfigValue $cfg.install.cuda_version "sin definir (ejecuta probe)")
         Write-KeyVal "python"      (Format-ConfigValue $cfg.install.python_version)
         Write-KeyVal "install_dir" (Format-ConfigValue $cfg.install.install_dir)

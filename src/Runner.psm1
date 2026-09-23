@@ -27,11 +27,11 @@ function Start-Comfy {
     $pyExe    = Join-Path $rootDir ".venv\Scripts\python.exe"
 
     if (-not (Test-Path -LiteralPath $mainPy)) {
-        Write-ErrorMsg "No se encontro '$mainPy'. Ejecuta primero: .\comodo.ps1 setup"
+        Write-ErrorMsg "No se encontro '$mainPy'. Ejecuta primero: .\comodo.ps1 provision apply"
         return $false
     }
     if (-not (Test-Path -LiteralPath $pyExe)) {
-        Write-ErrorMsg "No se encontro el entorno virtual. Ejecuta primero: .\comodo.ps1 setup"
+        Write-ErrorMsg "No se encontro el entorno virtual. Ejecuta primero: .\comodo.ps1 provision apply"
         return $false
     }
 

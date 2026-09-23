@@ -21,7 +21,7 @@ jobs:
           enable-cache: true
 
       - name: Comprobar que uv.lock corresponde a pyproject.toml
-        # Se valida antes que nada: 'setup' usa 'uv sync --locked' y fallaria
+        # Se valida antes que nada: 'provision apply' usa 'uv sync --locked' y fallaria
         # en el usuario final si el lock estuviera desincronizado.
         run: uv lock --check
 

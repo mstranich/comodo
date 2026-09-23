@@ -66,7 +66,7 @@ function Invoke-ComfySetup {
     )
 
     $rootDir = Get-ProjectRoot
-    Write-StepHeader "Aprovisionamiento de ComfyUI (setup)"
+    Write-StepHeader "Aprovisionamiento de ComfyUI (provision apply)"
 
     # --- 1. Herramientas del sistema -----------------------------------------
     $uvExe  = Find-UvExecutable
@@ -115,7 +115,7 @@ function Invoke-ComfySetup {
         Write-WarningMsg "No se detecto una GPU NVIDIA utilizable."
         Write-WarningMsg "La instalacion usaria PyTorch CPU, que para difusion es extremadamente lento."
         if (-not $AllowCpu) {
-            Write-ErrorMsg "Abortado. Si realmente quieres instalar en modo CPU, repite con: setup --allow-cpu"
+            Write-ErrorMsg "Abortado. Si realmente quieres instalar en modo CPU, repite con: provision apply --allow-cpu"
             return $false
         }
         Write-Info "Continuando en modo CPU por peticion explicita (--allow-cpu)."
@@ -125,7 +125,7 @@ function Invoke-ComfySetup {
         $torchExtra = Get-TorchExtra -CudaVersion $config.install.cuda_version
         if (-not $torchExtra) {
             Write-ErrorMsg "No hay un objetivo de PyTorch valido para CUDA '$($config.install.cuda_version)'."
-            Write-Info "Ejecuta 'probe' de nuevo o fija uno con: setup --cuda <version>"
+            Write-Info "Ejecuta 'probe' de nuevo o fija uno con: provision apply --cuda <version>"
             return $false
         }
     }

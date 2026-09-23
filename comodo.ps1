@@ -8,7 +8,7 @@
 .EXAMPLE
     .\comodo.ps1 pre-requisites --dry
     .\comodo.ps1 probe
-    .\comodo.ps1 setup
+    .\comodo.ps1 provision apply
     .\comodo.ps1 start --lowvram
 #>
 
@@ -59,6 +59,23 @@ function Get-OptionValue {
     return $null
 }
 
+function Invoke-Provisioning {
+    <#
+    .SYNOPSIS
+        Descarga ComfyUI y aprovisiona el entorno.
+    .DESCRIPTION
+        Cuerpo compartido por 'provision apply' y su alias 'install', para que
+        ambos acepten exactamente las mismas opciones.
+    #>
+    $cuda = Get-OptionValue 'cuda'
+    return Invoke-ComfySetup `
+        -Force:(Test-Flag @('force')) `
+        -CudaVersion:$cuda `
+        -SkipOptimizations:(Test-Flag @('skip-opt','skip-optimizations')) `
+        -SkipNodes:(Test-Flag @('skip-nodes')) `
+        -AllowCpu:(Test-Flag @('allow-cpu','cpu'))
+}
+
 function Show-Help {
     $sep = "=" * 66
     Write-Host "`n$ColorBold$ColorCyan$sep`n Comodo - gestor de ComfyUI (comodo.ps1)`n$sep$ColorReset"
@@ -73,7 +90,7 @@ function Show-Help {
     Write-Host "      Detecta la GPU y calcula el perfil optimo para esta maquina."
     Write-Host "      Opciones: --show (no guarda cambios)`n"
 
-    Write-Host "  $ColorYellow setup $ColorReset (download, provision)"
+    Write-Host "  $ColorYellow provision apply $ColorReset (alias: install)"
     Write-Host "      Clona ComfyUI, crea el venv con uv e instala PyTorch y los"
     Write-Host "      aceleradores que soporte la GPU detectada."
     Write-Host "      Opciones: --force, --cuda <ver>, --skip-opt, --skip-nodes, --allow-cpu`n"
@@ -86,13 +103,13 @@ function Show-Help {
     Write-Host "      Ajustes que llegan a main.py: lowvram, highvram, listen,"
     Write-Host "      port, preview, extra_args.  (etc/config.json)`n"
 
-    Write-Host "  $ColorYellow install <list|set|unset> [clave] [valor]$ColorReset"
-    Write-Host "      Ajustes de instalacion: cuda, python, install_dir, repo."
+    Write-Host "  $ColorYellow provision <list|set|unset> [clave] [valor]$ColorReset (prov)"
+    Write-Host "      Ajustes de aprovisionamiento: cuda, python, install_dir, repo."
     Write-Host "      (etc/config.json)`n"
 
     Write-Host "  $ColorYellow manager <list|set|unset> [clave] [valor]$ColorReset (mgr)"
     Write-Host "      Ajustes de ComfyUI-Manager (su config.ini). Se guardan y"
-    Write-Host "      se reaplican tras cada setup, asi un reset no los borra.`n"
+    Write-Host "      se reaplican tras cada provision apply, asi un reset no los borra.`n"
 
     Write-Host "  $ColorYellow config $ColorReset (get)        Muestra la configuracion activa.`n"
 
@@ -110,13 +127,13 @@ function Show-Help {
     Write-Host "$ColorBold[EJEMPLOS]$ColorReset"
     Write-Host "  .\comodo.ps1 pre-requisites --dry"
     Write-Host "  .\comodo.ps1 probe"
-    Write-Host "  .\comodo.ps1 setup"
+    Write-Host "  .\comodo.ps1 provision apply"
     Write-Host "  .\comodo.ps1 start"
     Write-Host "  .\comodo.ps1 nodes add https://github.com/user/mi-nodo.git"
     Write-Host "  .\comodo.ps1 accel list"
     Write-Host "  .\comodo.ps1 accel disable sage"
     Write-Host "  .\comodo.ps1 flag set port 8189"
-    Write-Host "  .\comodo.ps1 install set cuda 13.0"
+    Write-Host "  .\comodo.ps1 provision set cuda 13.0"
     Write-Host "  .\comodo.ps1 manager set allow_git_url_install True`n"
 }
 
@@ -133,16 +150,6 @@ try {
 
         '^(probe|detect|hardware)$' {
             $ok = ($null -ne (Invoke-HardwareProbe -ShowOnly:(Test-Flag @('show'))))
-        }
-
-        '^(setup|download|provision)$' {
-            $cuda = Get-OptionValue 'cuda'
-            $ok = Invoke-ComfySetup `
-                -Force:(Test-Flag @('force')) `
-                -CudaVersion:$cuda `
-                -SkipOptimizations:(Test-Flag @('skip-opt','skip-optimizations')) `
-                -SkipNodes:(Test-Flag @('skip-nodes')) `
-                -AllowCpu:(Test-Flag @('allow-cpu','cpu'))
         }
 
         '^(start|run)$' {
@@ -183,14 +190,22 @@ try {
                 -Listen:$listen -Port:$port -ExtraArgs:$extra
         }
 
-        # 'flag' e 'install' comparten implementacion y se distinguen por el
-        # espacio, que valida que la clave pertenezca a ese grupo.
-        '^(flag|flags|install|instalacion)$' {
-            $scope = if ($Command.ToLower() -in @('flag','flags')) { 'flag' } else { 'install' }
+        # 'flag' y 'provision' comparten implementacion y se distinguen por el
+        # espacio, que valida que la clave pertenezca a ese grupo. 'provision'
+        # admite ademas 'apply', que es la accion de aprovisionar.
+        '^(flag|flags|provision|prov)$' {
+            $scope = if ($Command.ToLower() -in @('flag','flags')) { 'flag' } else { 'provision' }
             $sub = if ($ArgsList.Count -gt 0) { $ArgsList[0].ToLower() } else { 'list' }
 
             switch -Regex ($sub) {
                 '^(list|ls|show)$' { $ok = Show-SettingScope -Scope $scope }
+                '^(apply)$' {
+                    if ($scope -ne 'provision') {
+                        Write-ErrorMsg "'apply' solo existe en 'provision'."
+                        exit 2
+                    }
+                    $ok = Invoke-Provisioning
+                }
                 '^(set)$' {
                     if ($ArgsList.Count -lt 2) {
                         Write-ErrorMsg "Uso: .\comodo.ps1 $scope set <clave> [valor]"
@@ -207,11 +222,15 @@ try {
                     $ok = Reset-ComfyConfigProperty -Key $ArgsList[1] -Scope $scope
                 }
                 default {
-                    Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, set, unset."
+                    $extra = if ($scope -eq 'provision') { ", apply" } else { "" }
+                    Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, set, unset$extra."
                     exit 2
                 }
             }
         }
+
+        # Atajo para la accion mas frecuente.
+        '^(install)$' { $ok = Invoke-Provisioning }
 
         '^(manager|mgr)$' {
             $sub = if ($ArgsList.Count -gt 0) { $ArgsList[0].ToLower() } else { 'list' }

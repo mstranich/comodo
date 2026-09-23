@@ -5,7 +5,7 @@
 # config.ini pertenece a ComfyUI-Manager, no al nucleo de ComfyUI, y vive
 # dentro del directorio de instalacion, que 'reset' elimina entero. Por eso
 # los valores que el usuario fija aqui se guardan ademas en etc/config.json
-# (seccion 'manager') y se reaplican tras cada 'setup': sin eso, cada reset
+# (seccion 'manager') y se reaplican tras cada 'provision apply': sin eso, cada reset
 # obligaria a repetirlos a mano.
 
 Set-StrictMode -Version Latest
@@ -110,7 +110,7 @@ function Sync-ManagerConfig {
     .SYNOPSIS
         Reaplica sobre config.ini los valores guardados en etc/config.json.
     .DESCRIPTION
-        La llama 'setup' despues de instalar los nodos, momento en que
+        La llama 'provision apply' despues de instalar los nodos, momento en que
         ComfyUI-Manager ya existe. Es lo que hace que los ajustes sobrevivan a
         un 'reset', que borra el directorio de instalacion completo.
     .OUTPUTS
@@ -206,7 +206,7 @@ function Set-ManagerSetting {
         Set-IniValue -Path $iniPath -Key $Key -Value $Value
         Write-Success "config.ini: $Key = $Value"
     } else {
-        Write-WarningMsg "ComfyUI-Manager no esta instalado; se guarda para aplicarlo tras 'setup'."
+        Write-WarningMsg "ComfyUI-Manager no esta instalado; se guarda para aplicarlo tras 'provision apply'."
     }
 
     # Persistir para sobrevivir a un reset.
@@ -214,7 +214,7 @@ function Set-ManagerSetting {
     $overrides.$Key = $Value
     Save-ComfyConfig -Config $config
 
-    Write-Info "Guardado en etc/config.json; se reaplica tras cada 'setup'."
+    Write-Info "Guardado en etc/config.json; se reaplica tras cada 'provision apply'."
     Write-Info "ComfyUI lee config.ini al arrancar: reinicialo con el servidor detenido."
     return $true
 }

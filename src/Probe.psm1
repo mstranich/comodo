@@ -74,7 +74,7 @@ function Sync-ComfyAcceleratorRegistry {
         El registro vive en src/probe_hardware.py y se persiste en la
         configuracion, asi que una config escrita por una version anterior del
         gestor no conoce los aceleradores anadidos despues. Sin este refresco,
-        'setup' los omitiria en silencio hasta que alguien volviera a ejecutar
+        'provision apply' los omitiria en silencio hasta que alguien volviera a ejecutar
         'probe' a mano.
 
         No vuelve a sondear el hardware: reevalua la tabla con el vendor y la
@@ -138,12 +138,8 @@ function Invoke-HardwareProbe {
 
     Write-StepHeader "Deteccion de hardware (probe)"
 
-    $scriptPath = Join-Path $PSScriptRoot "probe_hardware.py"
-    if (-not (Test-Path -LiteralPath $scriptPath)) {
-        Write-ErrorMsg "No se encontro el script de deteccion: $scriptPath"
-        return $null
-    }
-
+    # La comprobacion del script y el detalle del error los hace
+    # Invoke-ProbeScript, que es quien conoce el interprete que fallo.
     $probeResult = Invoke-ProbeScript
 
     if ($null -eq $probeResult) {
@@ -151,7 +147,6 @@ function Invoke-HardwareProbe {
         # datos falsos en config.json es peor que fallar: el resto del gestor
         # tomaria decisiones de instalacion sobre hardware inexistente.
         Write-ErrorMsg "No se pudo detectar el hardware."
-        if ($lastError) { Write-Info "Ultimo error: $lastError" }
         Write-Info "Comprueba que 'uv' o 'python' esten disponibles y reintenta."
         return $null
     }
@@ -206,7 +201,7 @@ function Invoke-HardwareProbe {
     $cfg.install.torch_index_url = $probeResult.torch_index_url
 
     # El registro completo (clave, extra, modulo, flag y motivo) se guarda tal
-    # cual: es lo que consumen setup, upgrade, doctor y start, de modo que no
+    # cual: es lo que consumen provision apply, upgrade, doctor y start, de modo que no
     # haya una segunda lista de aceleradores escrita en PowerShell.
     $cfg.accelerators = @($probeResult.accelerators)
 

@@ -40,8 +40,15 @@ Describe 'Comandos de comodo.ps1' {
 
     It 'los espacios de ajustes estan separados' {
         $script:Aliases | Should -Contain 'flag'
-        $script:Aliases | Should -Contain 'install'
+        $script:Aliases | Should -Contain 'provision'
         $script:Aliases | Should -Contain 'manager'
+    }
+
+    # 'install' se conserva como atajo de 'provision apply'; 'setup' se
+    # elimino para no tener dos nombres para la misma accion.
+    It 'install sigue existiendo y setup ya no' {
+        $script:Aliases | Should -Contain 'install'
+        $script:Aliases | Should -Not -Contain 'setup'
     }
 
     # Corte limpio acordado: 'set' y 'unset' sueltos ya no existen como

@@ -132,11 +132,11 @@ function Invoke-ComfyReset {
     if (-not $KeepConfig -and (Test-Path -LiteralPath $cfgPath)) {
         Write-Info "Eliminando configuracion local etc/config.json..."
         Remove-Item -LiteralPath $cfgPath -Force -ErrorAction SilentlyContinue
-        Write-Success "Archivo etc/config.json eliminado (se restablecera en el proximo setup o probe)."
+        Write-Success "Archivo etc/config.json eliminado (se restablecera en el proximo provision apply o probe)."
     }
 
     Write-Banner "[OK] Restablecimiento completado." -Level Success
-    Write-Info "Para aprovisionar de nuevo, ejecuta: .\comodo.ps1 setup"
+    Write-Info "Para aprovisionar de nuevo, ejecuta: .\comodo.ps1 provision apply"
     return $true
 }
 

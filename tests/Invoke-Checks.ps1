@@ -113,8 +113,8 @@ if (-not $uv) {
     Write-Host "uv no disponible; se omite." -ForegroundColor Yellow
 }
 else {
-    # Garantiza que uv.lock corresponde a pyproject.toml: si no, 'setup'
-    # fallaria en el usuario final porque usa 'uv sync --locked'.
+    # Garantiza que uv.lock corresponde a pyproject.toml: si no,
+    # 'provision apply' fallaria porque usa 'uv sync --locked'.
     & $uv.Source lock --check --project $RepoRoot
     if ($LASTEXITCODE -ne 0) {
         $failures += "uv.lock desactualizado respecto a pyproject.toml (ejecuta: uv lock)"

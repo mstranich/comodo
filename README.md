@@ -21,7 +21,7 @@ Abre **PowerShell Core (pwsh)** en esta carpeta:
 .\comodo.ps1 probe
 
 # 3. Clonar ComfyUI, crear el entorno e instalar lo que corresponda
-.\comodo.ps1 setup
+.\comodo.ps1 provision apply
 ```
 
 Para iniciar el servidor:
@@ -55,9 +55,9 @@ CUDA 13 ya no soporta Pascal ni anteriores, así que esas GPUs se quedan en la r
 
 Los aceleradores se declaran en una sola tabla, `ACCELERATORS` en [`src/probe_hardware.py`](src/probe_hardware.py). Cada fila indica su clave, el extra de `pyproject.toml` que lo instala, el módulo con el que se comprueba, el flag que necesita `main.py` y su capacidad de cómputo mínima.
 
-`probe` evalúa esa tabla contra la GPU detectada y guarda el resultado —con el **motivo** de cada decisión— en `etc/config.json`. A partir de ahí, `setup`, `upgrade`, `doctor` y `start` consumen ese registro; ninguno contiene nombres de acelerador escritos en el código.
+`probe` evalúa esa tabla contra la GPU detectada y guarda el resultado —con el **motivo** de cada decisión— en `etc/config.json`. A partir de ahí, `provision apply`, `upgrade`, `doctor` y `start` consumen ese registro; ninguno contiene nombres de acelerador escritos en el código.
 
-Añadir uno requiere **dos ediciones**: una fila en la tabla y un extra en `pyproject.toml` (más `uv lock`). Si olvidás el lock, `setup` falla de forma visible gracias a `--locked` en vez de instalar algo sin fijar.
+Añadir uno requiere **dos ediciones**: una fila en la tabla y un extra en `pyproject.toml` (más `uv lock`). Si olvidás el lock, `provision apply` falla de forma visible gracias a `--locked` en vez de instalar algo sin fijar.
 
 Cada acelerador se evalúa por separado, así que una GPU puede cumplir el umbral de uno y no el de otro (una Turing sm_7.5 recibe Triton pero no SageAttention, que exige sm_80).
 
@@ -71,7 +71,7 @@ El único nodo preinstalado es **ComfyUI-Manager**. Todo lo demás se añade a m
 
 ### Rutas no automatizadas
 
-Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLUDA) o Intel (IPEX) hay que configurar el entorno manualmente; `setup` lo advierte y se detiene salvo que pases `--allow-cpu` para instalar explícitamente la variante CPU.
+Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLUDA) o Intel (IPEX) hay que configurar el entorno manualmente; `provision apply` lo advierte y se detiene salvo que pases `--allow-cpu` para instalar explícitamente la variante CPU.
 
 ---
 
@@ -81,12 +81,12 @@ Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLU
 | :--- | :--- | :--- |
 | `pre-requisites` | `prereqs`, `check` | Valida `pwsh`, `uv`, `git` y conectividad. Ofrece instalar lo que falte vía Winget. |
 | `probe` | `detect`, `hardware` | Detecta la GPU y guarda el perfil en `etc/config.json`. |
-| `setup` | `download`, `install` | Clona ComfyUI, crea `.venv` con `uv` e instala PyTorch y los aceleradores aplicables. |
+| `provision apply` | `install` | Clona ComfyUI, crea `.venv` con `uv` e instala PyTorch y los aceleradores aplicables. |
 | `start` | `run` | Inicia ComfyUI con la configuración persistente. |
 | `custom-nodes` | `nodes` | Gestiona nodos Git (`list`, `add`, `remove`). |
 | `accelerators` | `accel` | Lista, activa y desactiva aceleradores (`list`, `enable`, `disable`). |
 | `flag <list\|set\|unset>` | | Ajustes que llegan a `main.py` (`etc/config.json`). |
-| `install <list\|set\|unset>` | | Ajustes de instalación (`etc/config.json`). |
+| `provision <list\|set\|unset>` | `prov` | Ajustes de aprovisionamiento (`etc/config.json`). |
 | `manager <list\|set\|unset>` | `mgr` | Ajustes de ComfyUI-Manager (`config.ini`). |
 | `config` | `get` | Vista de solo lectura de toda la configuración. |
 | `upgrade` | `update` | Actualiza ComfyUI, los nodos y los aceleradores habilitados. |
@@ -111,14 +111,15 @@ Todos los comandos devuelven un **código de salida** acorde al resultado (`0` c
 .\comodo.ps1 probe --show             # Solo muestra, sin escribir configuración
 ```
 
-### `setup`
+### `provision apply` (alias: `install`)
 ```powershell
-.\comodo.ps1 setup                    # Instalación estándar
-.\comodo.ps1 setup --force            # Recrea el entorno virtual desde cero
-.\comodo.ps1 setup --cuda 12.6        # Fuerza una versión de CUDA concreta
-.\comodo.ps1 setup --skip-opt         # Omite Triton y SageAttention
-.\comodo.ps1 setup --skip-nodes       # No clona ningún nodo
-.\comodo.ps1 setup --allow-cpu        # Permite instalar en modo CPU
+.\comodo.ps1 provision apply              # Instalación estándar
+.\comodo.ps1 install                      # Lo mismo, más corto
+.\comodo.ps1 provision apply --force      # Recrea el entorno virtual desde cero
+.\comodo.ps1 provision apply --cuda 12.6  # Fuerza una versión de CUDA concreta
+.\comodo.ps1 provision apply --skip-opt   # Omite Triton y SageAttention
+.\comodo.ps1 provision apply --skip-nodes # No clona ningún nodo
+.\comodo.ps1 provision apply --allow-cpu  # Permite instalar en modo CPU
 ```
 
 Versiones de CUDA admitidas: `12.6` y `13.0` — las que `pyproject.toml` declara como extras y `uv.lock` fija. Cualquier otra se **rechaza** con un error en vez de sustituirse en silencio.
@@ -142,7 +143,7 @@ Cualquier argumento no reconocido se reenvía tal cual a `main.py` de ComfyUI.
 .\comodo.ps1 nodes remove mi-nodo
 ```
 
-Los nodos añadidos quedan registrados en `etc/config.json`, de modo que un `setup` sobre una instalación limpia los reconstruye.
+Los nodos añadidos quedan registrados en `etc/config.json`, de modo que un `provision apply` sobre una instalación limpia los reconstruye.
 
 ### `accelerators` (alias: `accel`)
 ```powershell
@@ -153,9 +154,9 @@ Los nodos añadidos quedan registrados en `etc/config.json`, de modo que un `set
 
 La clave se resuelve contra el registro: vale la clave exacta, el nombre del paquete (`triton-windows`) o un prefijo inequívoco (`sage` → `sage_attention`). Activar uno que el hardware no soporta se permite, pero avisa.
 
-Los cambios se aplican con `setup`. `set <clave> on|off` hace lo mismo y acepta las mismas formas.
+Los cambios se aplican con `provision apply`. `set <clave> on|off` hace lo mismo y acepta las mismas formas.
 
-### Ajustes: `flag`, `install` y `manager`
+### Ajustes: `flag`, `provision` y `manager`
 
 Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste pedido en el espacio equivocado no falla con un "clave desconocida": indica el comando correcto.
 
@@ -170,12 +171,13 @@ Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste
 .\comodo.ps1 flag unset all           # Restablece todos los flags
 ```
 
-**`install`** — decisiones de aprovisionamiento, también en `etc/config.json`:
+**`provision`** — decisiones de aprovisionamiento, también en `etc/config.json`. El mismo espacio contiene `apply`, que es la acción de instalar:
 
 ```powershell
-.\comodo.ps1 install list
-.\comodo.ps1 install set cuda 13.0
-.\comodo.ps1 install set python 3.12
+.\comodo.ps1 provision list
+.\comodo.ps1 provision set cuda 13.0
+.\comodo.ps1 provision set python 3.12
+.\comodo.ps1 provision apply          # instala (alias: install)
 ```
 
 **`manager`** — el `config.ini` de **ComfyUI-Manager** (no del núcleo de ComfyUI):
@@ -186,7 +188,7 @@ Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste
 .\comodo.ps1 manager unset allow_git_url_install
 ```
 
-Ese `config.ini` vive dentro del directorio de instalación, que `reset` borra entero. Por eso `manager set` guarda además el valor en `etc/config.json` y **`setup` lo reaplica**: no hay que repetirlo tras cada reset. `manager unset` deja de fijarlo pero no revierte el `config.ini`, porque el valor actual puede seguir siendo el deseado.
+Ese `config.ini` vive dentro del directorio de instalación, que `reset` borra entero. Por eso `manager set` guarda además el valor en `etc/config.json` y **`provision apply` lo reaplica**: no hay que repetirlo tras cada reset. `manager unset` deja de fijarlo pero no revierte el `config.ini`, porque el valor actual puede seguir siendo el deseado.
 
 ComfyUI-Manager lee `config.ini` **al arrancar**, así que los cambios necesitan reiniciar ComfyUI con el servidor detenido.
 
@@ -204,7 +206,7 @@ Los aceleradores tienen su propio comando (`accel`) y no se tocan desde aquí.
 
 ## Reproducibilidad
 
-La capa que este gestor controla (PyTorch y los aceleradores) se declara en `pyproject.toml` y queda fijada en `uv.lock`, ambos versionados. `setup` la instala con:
+La capa que este gestor controla (PyTorch y los aceleradores) se declara en `pyproject.toml` y queda fijada en `uv.lock`, ambos versionados. `provision apply` la instala con:
 
 ```
 uv sync --locked --inexact --extra <objetivo>
@@ -260,7 +262,7 @@ Lo mismo se ejecuta en CI sobre `windows-latest` (`.github/workflows/ci.yml`).
     ├── Checker.psm1         # Requisitos previos (pre-requisites)
     ├── Probe.psm1           # Detección de hardware (probe)
     ├── probe_hardware.py    # Detección de GPU, solo biblioteca estándar
-    ├── Installer.psm1       # Clonado y aprovisionamiento (setup)
+    ├── Installer.psm1       # Clonado y aprovisionamiento (provision apply)
     ├── Runner.psm1          # Lanzador (start)
     ├── Nodes.psm1           # Nodos personalizados
     ├── Updater.psm1         # Actualizaciones (upgrade)
