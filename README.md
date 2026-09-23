@@ -205,6 +205,8 @@ Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste
 .\comodo.ps1 manager unset allow_git_url_install
 ```
 
+Verificado contra ComfyUI-Manager **4.2.2**: la ruta es `ComfyUI/user/__manager/config.ini`, la misma que en V3.38+ (el paquete la resuelve con `folder_paths.get_system_user_directory("manager")`). `allow_git_url_install` sigue existiendo; V4 añade `use_unified_resolver` y `verbose`, y retira `preview_method`, `component_policy` y `allow_flagged_nodepack_install`.
+
 Ese `config.ini` vive dentro del directorio de instalación, que `reset` borra entero. Por eso `manager set` guarda además el valor en `etc/config.json` y **`provision apply` lo reaplica**: no hay que repetirlo tras cada reset. `manager unset` deja de fijarlo pero no revierte el `config.ini`, porque el valor actual puede seguir siendo el deseado.
 
 ComfyUI-Manager lee `config.ini` **al arrancar**, así que los cambios necesitan reiniciar ComfyUI con el servidor detenido.

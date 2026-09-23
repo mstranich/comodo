@@ -298,11 +298,33 @@ for mod in ("triton", "sageattention"):
 
         $nodes = @($config.custom_nodes | Where-Object { $_ -and $_.enabled })
         if ($nodes.Count -eq 0) {
-            Write-Info "No hay nodos habilitados en etc/config.json."
+            Write-Info "No hay nodos registrados en etc/config.json."
         } else {
             foreach ($node in $nodes) {
                 Install-CustomNodeRepo -Node $node -CustomNodesDir $customNodesDir `
                     -GitExe $gitExe -UvExe $uvExe -PythonExe $pyExe | Out-Null
+            }
+        }
+
+        # Los nodos que ya estan en disco tambien necesitan sus dependencias.
+        # Tras un 'provision reset --keep-nodes' las carpetas sobreviven pero
+        # el .venv es nuevo: sin esto arrancarian sin sus paquetes y fallarian
+        # al importar, con un error que no menciona la causa. Pasa igual con
+        # los nodos instalados desde la UI de ComfyUI-Manager, que nunca
+        # llegan al registro.
+        $registrados = @($nodes | ForEach-Object { $_.name })
+        $enDisco = @(Get-ChildItem -Path $customNodesDir -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '^(__pycache__|\.)' -and $_.Name -notin $registrados })
+
+        if ($enDisco.Count -gt 0) {
+            Write-Info "Revisando dependencias de $($enDisco.Count) nodo(s) presentes sin registrar..."
+            foreach ($dir in $enDisco) {
+                $req = Join-Path $dir.FullName "requirements.txt"
+                if (-not (Test-Path -LiteralPath $req)) { continue }
+                Write-Info "Dependencias de $($dir.Name)..."
+                if (-not (Invoke-UvPip -UvExe $uvExe -PythonExe $pyExe -Arguments @('install','-r',$req))) {
+                    Write-WarningMsg "Fallaron las dependencias de $($dir.Name); puede no cargar."
+                }
             }
         }
     }
