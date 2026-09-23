@@ -223,3 +223,36 @@ Describe 'Etiquetas de las vistas' {
         }
     }
 }
+
+Describe 'Extras opcionales' {
+    It 'arrancan apagados: los elige el usuario, no el hardware' {
+        $cfg = New-DefaultConfig
+        foreach ($n in (Get-OptionalExtras).Keys) {
+            $cfg.extras.$n | Should -BeFalse -Because "'$n' no deberia activarse solo"
+        }
+    }
+
+    It 'cada extra declarado existe en pyproject.toml' {
+        $toml = Get-Content -LiteralPath (
+            Join-Path (Split-Path $PSScriptRoot -Parent) 'pyproject.toml'
+        ) -Raw
+        foreach ($n in (Get-OptionalExtras).Keys) {
+            $extra = (Get-OptionalExtras)[$n].extra
+            $toml | Should -Match "(?m)^$extra\s*=" -Because "falta el extra '$extra'"
+        }
+    }
+
+    # Una configuracion escrita antes de anadir un extra debe recibirlo.
+    It 'se anaden a una configuracion que no los tenia' {
+        $viejo = ConvertTo-NormalizedConfig -Config ([PSCustomObject]@{})
+        foreach ($n in (Get-OptionalExtras).Keys) {
+            $viejo.extras.PSObject.Properties[$n] | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'pertenecen al espacio provision' {
+        foreach ($n in (Get-OptionalExtras).Keys) {
+            Get-SettingScope -Key $n | Should -Be 'provision'
+        }
+    }
+}

@@ -84,6 +84,35 @@ Si un dato no se puede determinar (por ejemplo, un driver antiguo que no expone 
 
 **Ningún nodo viene impuesto**: se añaden con `custom-nodes add`.
 
+### MCP: manejar ComfyUI sin conocer ComfyUI
+
+ComfyUI no trae MCP, pero **Comfy Org publica un servidor de primera parte**, [`comfy-mcp`](https://github.com/Comfy-Org/comfy-mcp). El gestor lo ofrece como extra opcional:
+
+```powershell
+.\comodo.ps1 provision set mcp on
+.\comodo.ps1 provision apply
+```
+
+**Por qué está aquí.** ComfyUI es un editor de grafos: para generar algo hay que armar el nodo de checkpoint, el de CLIP, el sampler, el VAE decode y conectarlos. Eso es una barrera real para quien recién empieza. Con el MCP conectado, un agente (Claude, u otro cliente MCP) maneja ComfyUI por vos: le pedís lo que querés en lenguaje natural y él arma la llamada, consulta qué modelos tenés instalados y encola el trabajo.
+
+Es **opcional a propósito**: si ya te manejás con el grafo de nodos, no aporta nada y son dependencias de más.
+
+Se conecta por stdio apuntando al ejecutable del entorno:
+
+```
+D:\Apps\ComfyUI\.venv\Scripts\comfy-mcp.exe
+```
+
+En Claude Code:
+
+```bash
+claude mcp add comfyui -- D:\Apps\ComfyUI\.venv\Scripts\comfy-mcp.exe
+```
+
+Dos salvedades: está en **beta pública** (su API puede cambiar), y ComfyUI tiene que estar corriendo para que el agente pueda encolar nada.
+
+Por debajo se apoya en la API HTTP que ComfyUI ya expone (`/prompt`, `/queue`, `/history`, `/models`, `/object_info`, `/system_stats`), que es lo que envuelve cualquier MCP de ComfyUI.
+
 ### Rutas no automatizadas
 
 Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLUDA) o Intel (IPEX) hay que configurar el entorno manualmente; `provision apply` lo advierte y se detiene salvo que pases `--allow-cpu` para instalar explícitamente la variante CPU.
@@ -195,9 +224,12 @@ Todos aceptan tanto `clave valor` como `clave=valor`. Cada comando escribe en un
 .\comodo.ps1 provision list
 .\comodo.ps1 provision set cuda 13.0
 .\comodo.ps1 provision set python 3.12
+.\comodo.ps1 provision set mcp on     # extra opcional
 .\comodo.ps1 provision apply          # instala (alias: install)
 .\comodo.ps1 provision reset          # limpia   (alias: reset)
 ```
+
+Los **extras opcionales** (hoy solo `mcp`) se declaran en una tabla de `Config.psm1` y como extra de `pyproject.toml`. A diferencia de los aceleradores, nada los activa solo: los elige el usuario. Quedan fijados en `uv.lock` como todo lo demás.
 
 **`manager`** — el `config.ini` de **ComfyUI-Manager** (no del núcleo de ComfyUI):
 

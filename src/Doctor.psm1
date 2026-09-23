@@ -33,6 +33,7 @@ status = {
     "torch": None, "cuda_available": False, "cuda_version": None,
     "device_name": None, "vram_gb": None,
     "aimdo": None, "kitchen": None, "manager": None,
+    "extras": {},
     "torch_error": None,
     "accelerators": {},
 }
@@ -64,6 +65,12 @@ try:
 except Exception as exc:
     status["torch_error"] = str(exc)
 
+for _key, _dist in json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}").items():
+    try:
+        status["extras"][_key] = _md.version(_dist)
+    except Exception:
+        status["extras"][_key] = None
+
 for _key, _mod in _modules.items():
     try:
         _m = __import__(_mod)
@@ -93,7 +100,17 @@ print(json.dumps(status))
 
     $diag = $null
     try {
-        $raw = & $pyExe -c $doctorScript $moduleJson 2>&1
+        # Extras opcionales: clave -> nombre de distribucion.
+        $extrasMap = @{}
+        foreach ($nombre in (Get-OptionalExtras).Keys) {
+            if ([bool]$config.extras.$nombre) {
+                $extrasMap[$nombre] = (Get-OptionalExtras)[$nombre].package
+            }
+        }
+        $extrasJson = ($extrasMap | ConvertTo-Json -Compress)
+        if (-not $extrasJson) { $extrasJson = '{}' }
+
+        $raw = & $pyExe -c $doctorScript $moduleJson $extrasJson 2>&1
         if ($LASTEXITCODE -ne 0) { throw ($raw | Out-String).Trim() }
         $diag = ($raw | Out-String).Trim() | ConvertFrom-Json
     }
@@ -136,6 +153,14 @@ print(json.dumps(status))
     Write-KeyVal "DynamicVRAM"   $(if ($diag.aimdo) { "OK (comfy-aimdo v$($diag.aimdo))" } else { "no disponible" })
     Write-KeyVal "comfy-kitchen" $(if ($diag.kitchen) { "OK (v$($diag.kitchen))" } else { "no disponible" })
     Write-KeyVal "ComfyUI-Manager" $(if ($diag.manager) { "OK (v$($diag.manager))" } else { "no instalado" })
+
+    foreach ($nombre in (Get-OptionalExtras).Keys) {
+        if (-not [bool]$config.extras.$nombre) { continue }
+        $v = $null
+        if ($diag.extras.PSObject.Properties[$nombre]) { $v = $diag.extras.$nombre }
+        Write-KeyVal $nombre $(if ($v) { "OK (v$v)" } else { "FALTA (pedido en la configuracion)" })
+        if (-not $v) { $accelFaltantes += $nombre }
+    }
 
     # comfy-kitchen deshabilita sus backends optimizados si el build de CUDA de
     # PyTorch es anterior al objetivo del perfil. Es un fallo silencioso: todo

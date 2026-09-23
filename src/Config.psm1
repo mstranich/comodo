@@ -11,6 +11,31 @@ Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 # apply' leyendo el pin de ComfyUI (manager_requirements.txt).
 $script:DefaultCustomNodes = @()
 
+# Extras opcionales de pyproject.toml que elige el usuario, no el hardware.
+# A diferencia de los aceleradores, nada los activa solo. Anadir uno es una
+# fila aqui y un extra en pyproject.toml; el resto del gestor los recorre.
+#
+#   extra    extra de pyproject.toml que instala el paquete
+#   package  nombre de distribucion, para comprobar la version instalada
+#   detalle  que aporta, para la vista
+#
+# 'mcp' esta aqui por comodidad para quien no conoce ComfyUI: permite pedirle
+# cosas a un agente en lenguaje natural en vez de armar el grafo de nodos a
+# mano. Es opcional a proposito, porque quien ya maneja ComfyUI no lo necesita.
+$script:OptionalExtras = [ordered]@{
+    mcp = @{
+        extra   = 'mcp'
+        package = 'comfy-mcp'
+        detalle = 'controlar ComfyUI en lenguaje natural, sin manejar el grafo de nodos'
+    }
+}
+
+function Get-OptionalExtras {
+    [CmdletBinding()]
+    param()
+    return $script:OptionalExtras
+}
+
 function Get-ConfigFilePath {
     $etcDir = Join-Path (Get-ProjectRoot) "etc"
     if (-not (Test-Path -LiteralPath $etcDir)) {
@@ -50,6 +75,10 @@ function New-DefaultConfig {
         # Lo rellena 'probe' a partir del registro de src/probe_hardware.py.
         # Vacio significa "todavia sin detectar", no "ninguno aplica".
         accelerators = @()
+        # Extras opcionales, apagados salvo que el usuario los pida.
+        extras = [PSCustomObject]@{
+            mcp = $false
+        }
         runtime = [PSCustomObject]@{
             lowvram        = $false
             highvram       = $false
@@ -104,6 +133,13 @@ function ConvertTo-NormalizedConfig {
     }
     Set-DefaultMember -Object $Config -Name 'custom_nodes' -Default $defaults.custom_nodes
     Set-DefaultMember -Object $Config -Name 'accelerators' -Default @()
+
+    # Cada extra declarado debe existir en la configuracion, para que uno
+    # anadido despues aparezca en instalaciones ya creadas.
+    Set-DefaultMember -Object $Config -Name 'extras' -Default ([PSCustomObject]@{})
+    foreach ($nombre in $script:OptionalExtras.Keys) {
+        Set-DefaultMember -Object $Config.extras -Name $nombre -Default $false
+    }
 
     # Migracion de configuraciones anteriores al registro de aceleradores.
     # La seccion 'optimizations' tenia una propiedad booleana por acelerador;
@@ -285,7 +321,7 @@ $script:SettingScopes = @{
     provision = @(
         'cuda', 'cuda_version', 'python', 'python_version',
         'install_dir', 'dir', 'repo', 'comfy_repo'
-    )
+    ) + @($script:OptionalExtras.Keys)
 }
 
 function Get-SettingScope {
@@ -454,8 +490,16 @@ function Set-ComfyConfigProperty {
             Write-Success "install.comfy_repo = $($config.install.comfy_repo)"
         }
         default {
-            Write-ErrorMsg "Clave sin implementacion: '$Key'."
-            return $false
+            # Los extras opcionales se resuelven contra la tabla, de modo que
+            # anadir uno no obliga a ampliar este switch.
+            if ($script:OptionalExtras.Contains($keyLower)) {
+                $config.extras.$keyLower = [bool]$valObj
+                Write-Success "extras.$keyLower = $([bool]$valObj)"
+                Write-Info "Aplica el cambio con: .\comodo.ps1 provision apply"
+            } else {
+                Write-ErrorMsg "Clave sin implementacion: '$Key'."
+                return $false
+            }
         }
     }
 
@@ -513,8 +557,12 @@ function Reset-ComfyConfigProperty {
         '^(install_dir|dir)$'        { $config.install.install_dir = $defaults.install.install_dir }
         '^(repo|comfy_repo)$'        { $config.install.comfy_repo = $defaults.install.comfy_repo }
         default {
-            Write-ErrorMsg "Clave sin implementacion: '$Key'."
-            return $false
+            if ($script:OptionalExtras.Contains($keyLower)) {
+                $config.extras.$keyLower = $false
+            } else {
+                Write-ErrorMsg "Clave sin implementacion: '$Key'."
+                return $false
+            }
         }
     }
 
@@ -564,6 +612,15 @@ function Show-SettingScope {
         Write-KeyVal "comfy_repo"      (Format-ConfigValue $cfg.install.comfy_repo)
         Write-Host ""
         Write-KeyVal "(torch_index_url)" (Format-ConfigValue $cfg.install.torch_index_url "sin definir")
+
+        if ($script:OptionalExtras.Count -gt 0) {
+            Write-Host "`n  [Extras opcionales]" -ForegroundColor DarkCyan
+            foreach ($nombre in $script:OptionalExtras.Keys) {
+                $activo = [bool]$cfg.extras.$nombre
+                $estado = if ($activo) { "activo" } else { "inactivo" }
+                Write-KeyVal $nombre "$estado  ($($script:OptionalExtras[$nombre].detalle))"
+            }
+        }
         Write-Info "'set' acepta alias: cuda, python, dir, repo."
     }
     Write-Host ""
@@ -643,6 +700,7 @@ Export-ModuleMember -Function @(
     'Get-ComfyAccelerator',
     'Resolve-ComfyAcceleratorKey',
     'Get-SettingScope',
+    'Get-OptionalExtras',
     'Show-SettingScope',
     'Test-ComfyAcceleratorEnabled'
 )

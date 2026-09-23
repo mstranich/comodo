@@ -204,6 +204,12 @@ function Invoke-ComfySetup {
         }
     }
 
+    # Extras opcionales que pidio el usuario. No dependen del hardware ni de
+    # --skip-opt, que solo gobierna los aceleradores.
+    foreach ($nombre in (Get-OptionalExtras).Keys) {
+        if ([bool]$config.extras.$nombre) { $extras += $nombre }
+    }
+
     $syncArgs = @('sync', '--locked', '--inexact', '--project', $rootDir)
     foreach ($e in $extras) { $syncArgs += @('--extra', $e) }
     if ($config.install.python_version) {

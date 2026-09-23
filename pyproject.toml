@@ -25,6 +25,12 @@ cpu = ["torch", "torchvision", "torchaudio"]
 triton = ["triton-windows>=3.8,<4; sys_platform == 'win32'"]
 sage = ["sageattention>=1.0.6,<2"]
 
+# Extras opcionales que elige el usuario, no el hardware. A diferencia de los
+# aceleradores, nada los activa solo: se piden con 'provision set <clave> on'.
+# comfy-mcp es el servidor MCP de primera parte de Comfy Org; esta en beta
+# publica, de ahi que convenga fijarlo en uv.lock y no dejarlo flotando.
+mcp = ["comfy-mcp>=0.10,<1"]
+
 [dependency-groups]
 # Herramientas de desarrollo, no se instalan en el entorno de ejecucion.
 dev = ["pytest>=8"]
