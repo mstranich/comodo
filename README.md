@@ -173,13 +173,15 @@ Los cambios se aplican con `provision apply`. `set <clave> on|off` hace lo mismo
 
 ### Ajustes: `flag`, `provision` y `manager`
 
-Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste pedido en el espacio equivocado no falla con un "clave desconocida": indica el comando correcto.
+Todos aceptan tanto `clave valor` como `clave=valor`. Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste pedido en el espacio equivocado no falla con un "clave desconocida": indica el comando correcto.
 
 **`flag`** — lo que termina siendo argumento de `main.py`, en `etc/config.json`:
 
 ```powershell
 .\comodo.ps1 flag list
-.\comodo.ps1 flag set manager off     # arranca sin --enable-manager
+.\comodo.ps1 flag set manager off              # arranca sin --enable-manager
+.\comodo.ps1 flag set legacy_ui=true           # UI antigua del Manager
+.\comodo.ps1 flag set disable-manager-ui=true  # Manager sin UI
 .\comodo.ps1 flag set lowvram
 .\comodo.ps1 flag set port 8189
 .\comodo.ps1 flag set listen 0.0.0.0

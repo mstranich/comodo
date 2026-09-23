@@ -57,6 +57,10 @@ function New-DefaultConfig {
             # ComfyUI 0.37+ trae el Manager apagado por defecto: antes era
             # --disable-manager (opt-out) y ahora --enable-manager (opt-in).
             enable_manager = $true
+            # Estos dos van en un add_mutually_exclusive_group() de ComfyUI,
+            # asi que nunca pueden estar activos a la vez.
+            disable_manager_ui = $false
+            enable_manager_legacy_ui = $false
             preview_method = "auto"
             listen         = "127.0.0.1"
             port           = 8188
@@ -273,7 +277,10 @@ $script:SettingScopes = @{
         'lowvram', 'low-vram', 'highvram', 'high-vram',
         'listen', 'host', 'ip', 'port', 'puerto',
         'preview', 'preview_method', 'extra_args', 'extraargs',
-        'manager', 'enable_manager'
+        'manager', 'enable_manager', 'enable-manager',
+        'disable_manager_ui', 'disable-manager-ui',
+        'legacy_ui', 'legacy-ui',
+        'enable_manager_legacy_ui', 'enable-manager-legacy-ui'
     )
     provision = @(
         'cuda', 'cuda_version', 'python', 'python_version',
@@ -387,9 +394,28 @@ function Set-ComfyConfigProperty {
             }
             Write-Success "runtime.listen = $($config.runtime.listen)"
         }
-        '^(manager|enable_manager)$' {
+        '^(manager|enable[-_]manager)$' {
             $config.runtime.enable_manager = [bool]$valObj
             Write-Success "runtime.enable_manager = $($config.runtime.enable_manager)"
+        }
+        '^(disable[-_]manager[-_]ui)$' {
+            $config.runtime.disable_manager_ui = [bool]$valObj
+            # ComfyUI los declara mutuamente excluyentes: pasarlos juntos hace
+            # que argparse aborte, asi que activar uno apaga el otro aqui.
+            if ($config.runtime.disable_manager_ui) {
+                $config.runtime.enable_manager_legacy_ui = $false
+            }
+            Write-Success "runtime.disable_manager_ui = $($config.runtime.disable_manager_ui)"
+        }
+        '^(legacy[-_]ui|enable[-_]manager[-_]legacy[-_]ui)$' {
+            $config.runtime.enable_manager_legacy_ui = [bool]$valObj
+            if ($config.runtime.enable_manager_legacy_ui) {
+                $config.runtime.disable_manager_ui = $false
+                # El flag implica --enable-manager en ComfyUI; se refleja aqui
+                # para que 'flag list' no muestre un estado contradictorio.
+                $config.runtime.enable_manager = $true
+            }
+            Write-Success "runtime.enable_manager_legacy_ui = $($config.runtime.enable_manager_legacy_ui)"
         }
         '^(preview|preview_method)$' {
             $valid = @('auto','latent2rgb','taesd','none')
@@ -455,6 +481,9 @@ function Reset-ComfyConfigProperty {
         $config.runtime.listen         = $defaults.runtime.listen
         $config.runtime.port           = $defaults.runtime.port
         $config.runtime.extra_args     = @()
+        $config.runtime.enable_manager           = $defaults.runtime.enable_manager
+        $config.runtime.disable_manager_ui       = $defaults.runtime.disable_manager_ui
+        $config.runtime.enable_manager_legacy_ui = $defaults.runtime.enable_manager_legacy_ui
         Save-ComfyConfig -Config $config
         Write-Success "Flags restablecidos a sus valores por defecto."
         return $true
@@ -476,7 +505,9 @@ function Reset-ComfyConfigProperty {
         '^(port|puerto)$'            { $config.runtime.port = $defaults.runtime.port }
         '^(listen|host|ip)$'         { $config.runtime.listen = $defaults.runtime.listen }
         '^(preview|preview_method)$' { $config.runtime.preview_method = $defaults.runtime.preview_method }
-        '^(manager|enable_manager)$'  { $config.runtime.enable_manager = $defaults.runtime.enable_manager }
+        '^(manager|enable[-_]manager)$' { $config.runtime.enable_manager = $defaults.runtime.enable_manager }
+        '^(disable[-_]manager[-_]ui)$'  { $config.runtime.disable_manager_ui = $defaults.runtime.disable_manager_ui }
+        '^(legacy[-_]ui|enable[-_]manager[-_]legacy[-_]ui)$' { $config.runtime.enable_manager_legacy_ui = $defaults.runtime.enable_manager_legacy_ui }
         '^(extra_args|extraargs)$'   { $config.runtime.extra_args = @() }
         '^(python|python_version)$'  { $config.install.python_version = $defaults.install.python_version }
         '^(install_dir|dir)$'        { $config.install.install_dir = $defaults.install.install_dir }
@@ -512,6 +543,8 @@ function Show-SettingScope {
         Write-KeyVal "port"        (Format-ConfigValue $cfg.runtime.port)
         Write-KeyVal "preview"     (Format-ConfigValue $cfg.runtime.preview_method)
         Write-KeyVal "manager"     "$($cfg.runtime.enable_manager)"
+        Write-KeyVal "disable_manager_ui" "$($cfg.runtime.disable_manager_ui)"
+        Write-KeyVal "legacy_ui"   "$($cfg.runtime.enable_manager_legacy_ui)"
         Write-KeyVal "extra_args"  $(if (@($cfg.runtime.extra_args).Count -gt 0) { @($cfg.runtime.extra_args) -join ' ' } else { "(ninguno)" })
     }
     else {

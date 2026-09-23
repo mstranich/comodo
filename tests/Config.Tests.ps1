@@ -150,3 +150,30 @@ Describe 'Resolve-ComfyAcceleratorKey' {
         Resolve-ComfyAcceleratorKey -Config $ambiguo -Name 'sage' | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Flags del Manager' {
+    # ComfyUI declara --disable-manager-ui y --enable-manager-legacy-ui en un
+    # add_mutually_exclusive_group(): pasarlos juntos aborta argparse, asi que
+    # la configuracion no debe poder dejarlos activos a la vez.
+    It 'activar legacy_ui apaga disable_manager_ui' {
+        $cfg = New-DefaultConfig
+        $cfg.runtime.disable_manager_ui = $true
+        $cfg.runtime.enable_manager_legacy_ui = $true
+        # Se replica aqui la regla que aplica Set-ComfyConfigProperty.
+        if ($cfg.runtime.enable_manager_legacy_ui) { $cfg.runtime.disable_manager_ui = $false }
+        $cfg.runtime.disable_manager_ui | Should -BeFalse
+    }
+
+    It 'por defecto solo el Manager esta activo' {
+        $cfg = New-DefaultConfig
+        $cfg.runtime.enable_manager           | Should -BeTrue
+        $cfg.runtime.disable_manager_ui       | Should -BeFalse
+        $cfg.runtime.enable_manager_legacy_ui | Should -BeFalse
+    }
+
+    It 'las tres claves pertenecen al espacio flag' {
+        foreach ($k in @('manager','enable-manager','disable-manager-ui','legacy_ui','enable-manager-legacy-ui')) {
+            Get-SettingScope -Key $k | Should -Be 'flag' -Because "'$k' deberia ser un flag"
+        }
+    }
+}

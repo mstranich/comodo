@@ -90,6 +90,35 @@ function Invoke-ProvisionReset {
         -KeepNodes:(Test-Flag @('keep-nodes'))
 }
 
+function Split-KeyValue {
+    <#
+    .SYNOPSIS
+        Admite tanto 'clave valor' como 'clave=valor'.
+    .DESCRIPTION
+        La forma con '=' es una convencion habitual y sin ella el error que
+        veia el usuario era "clave no reconocida", que apunta al nombre
+        cuando el problema real es la forma.
+        Mezclar ambas ('clave=valor otro') es ambiguo y se rechaza.
+    .OUTPUTS
+        Hashtable con Key y Value, o $null si la entrada es ambigua.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$First,
+        [AllowNull()][string]$Second = $null
+    )
+
+    if ($First -match '^([^=]+)=(.*)$') {
+        if (-not [string]::IsNullOrEmpty($Second)) {
+            Write-ErrorMsg "No mezcles 'clave=valor' con un valor suelto: '$First' y '$Second'."
+            Write-Info "Usa una de las dos formas, no ambas."
+            return $null
+        }
+        return @{ Key = $Matches[1]; Value = $Matches[2] }
+    }
+
+    return @{ Key = $First; Value = $Second }
+}
+
 function Show-Help {
     $sep = "=" * 66
     Write-Host "`n$ColorBold$ColorCyan$sep`n Comodo - gestor de ComfyUI (comodo.ps1)`n$sep$ColorReset"
@@ -115,7 +144,9 @@ function Show-Help {
 
     Write-Host "  $ColorYellow flag <list|set|unset> [clave] [valor]$ColorReset"
     Write-Host "      Ajustes que llegan a main.py: lowvram, highvram, listen,"
-    Write-Host "      port, preview, extra_args.  (etc/config.json)`n"
+    Write-Host "      port, preview, extra_args, manager, disable_manager_ui,"
+    Write-Host "      legacy_ui.  (etc/config.json)"
+    Write-Host "      Admite 'clave valor' y 'clave=valor'.`n"
 
     Write-Host "  $ColorYellow provision <list|set|unset> [clave] [valor]$ColorReset (prov)"
     Write-Host "      Ajustes de aprovisionamiento: cuda, python, install_dir, repo."
@@ -148,6 +179,7 @@ function Show-Help {
     Write-Host "  .\comodo.ps1 accel list"
     Write-Host "  .\comodo.ps1 accel disable sage"
     Write-Host "  .\comodo.ps1 flag set port 8189"
+    Write-Host "  .\comodo.ps1 flag set legacy_ui=true"
     Write-Host "  .\comodo.ps1 provision set cuda 13.0"
     Write-Host "  .\comodo.ps1 manager set allow_git_url_install True`n"
 }
@@ -230,11 +262,12 @@ try {
                 }
                 '^(set)$' {
                     if ($ArgsList.Count -lt 2) {
-                        Write-ErrorMsg "Uso: .\comodo.ps1 $scope set <clave> [valor]"
+                        Write-ErrorMsg "Uso: .\comodo.ps1 $scope set <clave> [valor]  (o clave=valor)"
                         exit 2
                     }
-                    $val = if ($ArgsList.Count -gt 2) { $ArgsList[2] } else { $null }
-                    $ok = Set-ComfyConfigProperty -Key $ArgsList[1] -Value $val -Scope $scope
+                    $kv = Split-KeyValue -First $ArgsList[1] -Second $(if ($ArgsList.Count -gt 2) { $ArgsList[2] } else { $null })
+                    if ($null -eq $kv) { exit 2 }
+                    $ok = Set-ComfyConfigProperty -Key $kv.Key -Value $kv.Value -Scope $scope
                 }
                 '^(unset)$' {
                     if ($ArgsList.Count -lt 2) {
@@ -259,11 +292,17 @@ try {
             switch -Regex ($sub) {
                 '^(list|ls|show)$' { $ok = Show-ManagerConfig }
                 '^(set)$' {
-                    if ($ArgsList.Count -lt 3) {
-                        Write-ErrorMsg "Uso: .\comodo.ps1 manager set <clave> <valor>"
+                    if ($ArgsList.Count -lt 2) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 manager set <clave> <valor>  (o clave=valor)"
                         exit 2
                     }
-                    $ok = Set-ManagerSetting -Key $ArgsList[1] -Value $ArgsList[2]
+                    $kv = Split-KeyValue -First $ArgsList[1] -Second $(if ($ArgsList.Count -gt 2) { $ArgsList[2] } else { $null })
+                    if ($null -eq $kv) { exit 2 }
+                    if ([string]::IsNullOrEmpty($kv.Value)) {
+                        Write-ErrorMsg "'manager set' necesita un valor: <clave> <valor> o clave=valor."
+                        exit 2
+                    }
+                    $ok = Set-ManagerSetting -Key $kv.Key -Value $kv.Value
                 }
                 '^(unset)$' {
                     if ($ArgsList.Count -lt 2) {

@@ -84,9 +84,30 @@ function Start-Comfy {
         $useManager = [bool]$config.runtime.enable_manager
     }
 
+    # Los otros dos flags del grupo. ComfyUI los declara mutuamente
+    # excluyentes, asi que si la configuracion trajera ambos activos se da
+    # prioridad a la UI antigua y se avisa, en vez de dejar que argparse
+    # aborte con un error que no explica de donde salio.
+    $noManagerUi = $false
+    $legacyUi    = $false
+    if ($config.runtime.PSObject.Properties['disable_manager_ui']) {
+        $noManagerUi = [bool]$config.runtime.disable_manager_ui
+    }
+    if ($config.runtime.PSObject.Properties['enable_manager_legacy_ui']) {
+        $legacyUi = [bool]$config.runtime.enable_manager_legacy_ui
+    }
+    if ($noManagerUi -and $legacyUi) {
+        Write-WarningMsg "disable_manager_ui y legacy_ui son excluyentes; se usa legacy_ui."
+        $noManagerUi = $false
+    }
+    # --enable-manager-legacy-ui implica --enable-manager en ComfyUI.
+    if ($legacyUi) { $useManager = $true }
+
     # --- Construir argumentos ------------------------------------------------
     $cmdArgs = @($mainPy)
-    if ($useManager) { $cmdArgs += "--enable-manager" }
+    if ($useManager)  { $cmdArgs += "--enable-manager" }
+    if ($noManagerUi) { $cmdArgs += "--disable-manager-ui" }
+    if ($legacyUi)    { $cmdArgs += "--enable-manager-legacy-ui" }
     if ($useLow)  { $cmdArgs += "--lowvram" }
     if ($useHigh) { $cmdArgs += "--highvram" }
     if ($accelFlags.Count -gt 0) { $cmdArgs += $accelFlags }
@@ -106,7 +127,11 @@ function Start-Comfy {
     Write-KeyVal "GPU"           $gpuLabel
     Write-KeyVal "Modo VRAM"     $vramMode
     Write-KeyVal "Aceleradores" $(if ($accelActivos.Count -gt 0) { $accelActivos -join ', ' } else { "ninguno" })
-    Write-KeyVal "Manager"      $(if ($useManager) { "activo (--enable-manager)" } else { "inactivo" })
+    $managerEstado = if (-not $useManager) { "inactivo" }
+                     elseif ($legacyUi)    { "activo, UI antigua" }
+                     elseif ($noManagerUi) { "activo, sin UI" }
+                     else                  { "activo" }
+    Write-KeyVal "Manager"      $managerEstado
     Write-KeyVal "URL"           "http://${listenHost}:${listenPort}"
 
     if ($listenHost -eq "0.0.0.0") {
