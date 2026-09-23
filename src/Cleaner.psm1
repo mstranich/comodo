@@ -12,7 +12,8 @@ function Invoke-ComfyReset {
     param(
         [switch]$Force = $false,
         [switch]$KeepConfig = $false,
-        [switch]$KeepModels = $false
+        [switch]$KeepModels = $false,
+        [switch]$KeepNodes = $false
     )
 
     $rootDir = Get-ProjectRoot
@@ -31,7 +32,12 @@ function Invoke-ComfyReset {
             Write-Host "  - Entorno virtual de Python (.venv)" -ForegroundColor Yellow
         }
         if (Test-Path -LiteralPath $comfyDir) {
-            Write-Host "  - Instalacion de ComfyUI y todos los nodos clonados (ComfyUI/)" -ForegroundColor Yellow
+            Write-Host "  - Instalacion de ComfyUI (ComfyUI/)" -ForegroundColor Yellow
+        }
+        if ($KeepNodes) {
+            Write-Host "  * Los nodos de ComfyUI/custom_nodes seran preservados." -ForegroundColor Cyan
+        } elseif (Test-Path -LiteralPath (Join-Path $comfyDir "custom_nodes")) {
+            Write-Host "  - Nodos personalizados (ComfyUI/custom_nodes)" -ForegroundColor Yellow
         }
         if (-not $KeepConfig -and (Test-Path -LiteralPath $cfgPath)) {
             Write-Host "  - Archivo de configuracion local (etc/config.json)" -ForegroundColor Yellow
@@ -75,19 +81,32 @@ function Invoke-ComfyReset {
         Write-WarningMsg "No se pudieron enumerar los procesos: $_"
     }
 
-    # 2. Respaldar modelos si se solicito -KeepModels
-    $tempModelsDir = Join-Path $rootDir "models_backup_$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-    $modelsMoved = $false
-    if ($KeepModels -and (Test-Path -LiteralPath (Join-Path $comfyDir "models"))) {
-        Write-Info "Preservando modelos en: $(Split-Path $tempModelsDir -Leaf)"
+    # 2. Apartar lo que se quiera conservar.
+    #    Se mueve fuera del arbol antes de borrar y se devuelve despues, de
+    #    modo que un fallo al apartar aborta el reset sin haber destruido
+    #    nada: perder modelos o nodos es el peor resultado de este comando.
+    $stamp   = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $keepMap = [ordered]@{}
+    if ($KeepModels) { $keepMap['models'] = 'modelos' }
+    if ($KeepNodes)  { $keepMap['custom_nodes'] = 'nodos personalizados' }
+
+    $preserved = [ordered]@{}
+    foreach ($name in $keepMap.Keys) {
+        $source = Join-Path $comfyDir $name
+        if (-not (Test-Path -LiteralPath $source)) { continue }
+
+        $backup = Join-Path $rootDir ("{0}_backup_{1}" -f $name, $stamp)
+        Write-Info "Preservando $($keepMap[$name]) en: $(Split-Path $backup -Leaf)"
         try {
-            Move-Item -LiteralPath (Join-Path $comfyDir "models") -Destination $tempModelsDir -Force -ErrorAction Stop
-            $modelsMoved = $true
+            Move-Item -LiteralPath $source -Destination $backup -Force -ErrorAction Stop
+            $preserved[$name] = $backup
         } catch {
-            # Abortar antes de borrar nada: perder los modelos es el peor
-            # resultado posible de este comando.
-            Write-ErrorMsg "No se pudieron preservar los modelos: $_"
-            Write-ErrorMsg "Se aborta el reset para no perderlos."
+            Write-ErrorMsg "No se pudo preservar '$name': $_"
+            Write-ErrorMsg "Se aborta el reset para no perder nada."
+            # Devolver lo ya apartado antes de salir.
+            foreach ($done in $preserved.Keys) {
+                Move-Item -LiteralPath $preserved[$done] -Destination (Join-Path $comfyDir $done) -Force -ErrorAction SilentlyContinue
+            }
             return $false
         }
     }
@@ -114,17 +133,20 @@ function Invoke-ComfyReset {
         Write-Success "Directorio ComfyUI eliminado."
     }
 
-    # Restaurar modelos si correspondia
-    if ($modelsMoved -and (Test-Path -LiteralPath $tempModelsDir)) {
-        $newModels = Join-Path $comfyDir "models"
+    # Devolver lo preservado. Esto recrea el directorio de instalacion con
+    # solo esas carpetas dentro; 'provision apply' detecta que falta el codigo
+    # y clona igualmente, en vez de darlo por instalado.
+    foreach ($name in $preserved.Keys) {
+        $backup = $preserved[$name]
+        if (-not (Test-Path -LiteralPath $backup)) { continue }
         New-Item -ItemType Directory -Path $comfyDir -Force | Out-Null
         try {
-            Move-Item -LiteralPath $tempModelsDir -Destination $newModels -Force -ErrorAction Stop
-            Write-Success "Modelos restaurados en $($config.install.install_dir)/models."
+            Move-Item -LiteralPath $backup -Destination (Join-Path $comfyDir $name) -Force -ErrorAction Stop
+            Write-Success "Restaurado: $($config.install.install_dir)/$name"
         } catch {
-            # Nunca dejar al usuario sin saber donde quedaron sus modelos.
-            Write-ErrorMsg "No se pudieron restaurar los modelos automaticamente."
-            Write-WarningMsg "Siguen intactos en: $tempModelsDir"
+            # Nunca dejar al usuario sin saber donde quedo su contenido.
+            Write-ErrorMsg "No se pudo restaurar '$name' automaticamente."
+            Write-WarningMsg "Sigue intacto en: $backup"
         }
     }
 

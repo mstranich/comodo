@@ -106,7 +106,7 @@ Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLU
 | `config` | `get` | Vista de solo lectura de toda la configuración. |
 | `upgrade` | `update` | Actualiza ComfyUI, los nodos y los aceleradores habilitados. |
 | `doctor` | | Compara el entorno real contra el perfil detectado. |
-| `provision reset` | `reset` | Limpia `.venv`, la instalación y la configuración local. |
+| `provision reset` | `reset` | Limpia `.venv`, la instalación y la configuración local. Admite `--keep-models`, `--keep-nodes` y `--keep-config`. |
 | `help` | `--help`, `-h` | Muestra la ayuda. |
 
 Todos los comandos devuelven un **código de salida** acorde al resultado (`0` correcto, `1` fallo, `2` uso incorrecto), por lo que se pueden encadenar o usar desde scripts.
@@ -216,7 +216,8 @@ Los aceleradores tienen su propio comando (`accel`) y no se tocan desde aquí.
 .\comodo.ps1 provision reset              # Pide confirmación
 .\comodo.ps1 reset                        # Lo mismo, más corto
 .\comodo.ps1 provision reset --force      # Sin preguntar
-.\comodo.ps1 provision reset --keep-models # Preserva los modelos descargados
+.\comodo.ps1 provision reset --keep-models # Preserva los modelos (checkpoints, LoRAs...)
+.\comodo.ps1 provision reset --keep-nodes  # Preserva ComfyUI/custom_nodes
 .\comodo.ps1 provision reset --keep-config # Conserva etc/config.json
 ```
 

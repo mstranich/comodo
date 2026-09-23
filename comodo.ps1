@@ -86,7 +86,8 @@ function Invoke-ProvisionReset {
     return Invoke-ComfyReset `
         -Force:(Test-Flag @('force','y','f')) `
         -KeepConfig:(Test-Flag @('keep-config')) `
-        -KeepModels:(Test-Flag @('keep-models'))
+        -KeepModels:(Test-Flag @('keep-models')) `
+        -KeepNodes:(Test-Flag @('keep-nodes'))
 }
 
 function Show-Help {
@@ -136,7 +137,7 @@ function Show-Help {
     Write-Host "  $ColorYellow doctor $ColorReset               Comprueba el entorno contra el perfil detectado."
     Write-Host "  $ColorYellow provision reset $ColorReset (alias: reset)"
     Write-Host "      Limpia .venv, la instalacion y la config local."
-    Write-Host "      Opciones: --force (-y), --keep-models, --keep-config`n"
+    Write-Host "      Opciones: --force (-y), --keep-models, --keep-nodes, --keep-config`n"
 
     Write-Host "$ColorBold[EJEMPLOS]$ColorReset"
     Write-Host "  .\comodo.ps1 pre-requisites --dry"

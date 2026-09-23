@@ -133,9 +133,16 @@ function Invoke-ComfySetup {
     # --- 4. Clonar ComfyUI ---------------------------------------------------
     $comfyDir = Join-Path $rootDir $config.install.install_dir
     Write-StepHeader "Paso 1/4: Repositorio de ComfyUI"
-    if (Test-Path -LiteralPath $comfyDir) {
+    # Se comprueba el codigo, no el directorio: tras un 'provision reset
+    # --keep-models' o '--keep-nodes' la carpeta existe pero solo contiene lo
+    # preservado. Mirar solo Test-Path daba por instalado un arbol sin main.py
+    # y el fallo aparecia mucho despues, al arrancar.
+    $mainPyPath = Join-Path $comfyDir "main.py"
+
+    if (Test-Path -LiteralPath $mainPyPath) {
         Write-Success "ComfyUI ya presente en: $comfyDir"
-    } else {
+    }
+    elseif (-not (Test-Path -LiteralPath $comfyDir)) {
         Write-Info "Clonando ComfyUI..."
         & $gitExe clone $config.install.comfy_repo $comfyDir
         if ($LASTEXITCODE -ne 0) {
@@ -143,6 +150,26 @@ function Invoke-ComfySetup {
             return $false
         }
         Write-Success "ComfyUI clonado."
+    }
+    else {
+        # 'git clone' se niega a escribir en un directorio no vacio, asi que
+        # se clona aparte y se fusiona sin pisar nada de lo preservado.
+        Write-Info "El directorio existe pero no tiene el codigo; clonando y fusionando..."
+        $tempClone = Join-Path $rootDir ".comfy-clone-$(Get-Date -Format 'yyyyMMddHHmmss')"
+        & $gitExe clone $config.install.comfy_repo $tempClone
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorMsg "Fallo al clonar ComfyUI desde $($config.install.comfy_repo)"
+            Remove-Item -LiteralPath $tempClone -Recurse -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+
+        if (-not (Merge-DirectoryInto -Source $tempClone -Destination $comfyDir)) {
+            Write-ErrorMsg "Fallo al fusionar el clon con el contenido preservado."
+            Write-WarningMsg "El clon quedo en: $tempClone"
+            return $false
+        }
+        Remove-Item -LiteralPath $tempClone -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Success "ComfyUI clonado y fusionado con lo preservado."
     }
 
     # --- 5. Entorno gestionado por uv ----------------------------------------

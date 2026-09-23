@@ -75,3 +75,39 @@ Describe 'Colores ANSI' {
         $ColorReset | Should -Not -BeNullOrEmpty
     }
 }
+
+Describe 'Merge-DirectoryInto' {
+    BeforeEach {
+        $script:Root = Join-Path ([IO.Path]::GetTempPath()) "merge-$(New-Guid)"
+        $script:Src  = Join-Path $script:Root 'clon'
+        $script:Dst  = Join-Path $script:Root 'destino'
+        New-Item -ItemType Directory -Path "$script:Src\models\checkpoints" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$script:Dst\models\checkpoints" -Force | Out-Null
+    }
+    AfterEach {
+        Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'anade lo que falta en el destino' {
+        Set-Content "$script:Src\main.py" 'codigo'
+        Merge-DirectoryInto -Source $script:Src -Destination $script:Dst | Should -BeTrue
+        Test-Path "$script:Dst\main.py" | Should -BeTrue
+    }
+
+    # Lo preservado por 'provision reset' gana siempre: es justo lo que el
+    # usuario pidio conservar.
+    It 'nunca pisa un archivo que ya existe' {
+        Set-Content "$script:Src\models\checkpoints\m.safetensors" 'DEL CLON'
+        Set-Content "$script:Dst\models\checkpoints\m.safetensors" 'DEL USUARIO'
+        Merge-DirectoryInto -Source $script:Src -Destination $script:Dst | Should -BeTrue
+        Get-Content "$script:Dst\models\checkpoints\m.safetensors" | Should -Be 'DEL USUARIO'
+    }
+
+    It 'fusiona directorios que existen en ambos lados' {
+        Set-Content "$script:Src\models\checkpoints\skeleton.txt" 'nuevo'
+        Set-Content "$script:Dst\models\checkpoints\mio.safetensors" 'mio'
+        Merge-DirectoryInto -Source $script:Src -Destination $script:Dst | Should -BeTrue
+        Test-Path "$script:Dst\models\checkpoints\skeleton.txt"  | Should -BeTrue
+        Test-Path "$script:Dst\models\checkpoints\mio.safetensors" | Should -BeTrue
+    }
+}

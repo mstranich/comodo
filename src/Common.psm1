@@ -234,6 +234,46 @@ function Get-TorchIndexUrl {
     return $script:CudaWheelIndexes[$CudaVersion]
 }
 
+function Merge-DirectoryInto {
+    <#
+    .SYNOPSIS
+        Copia el contenido de $Source en $Destination sin pisar lo existente.
+    .DESCRIPTION
+        Lo ya presente en el destino gana siempre: es lo que el usuario pidio
+        preservar. Solo se anade lo que falta.
+    .OUTPUTS
+        [bool] $true si la fusion termino sin errores.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Source,
+        [Parameter(Mandatory=$true)][string]$Destination
+    )
+
+    try {
+        foreach ($item in (Get-ChildItem -LiteralPath $Source -Force)) {
+            $target = Join-Path $Destination $item.Name
+
+            if (-not (Test-Path -LiteralPath $target)) {
+                Move-Item -LiteralPath $item.FullName -Destination $target -Force -ErrorAction Stop
+                continue
+            }
+            if ($item.PSIsContainer) {
+                # Ambos son directorios: fusionar recursivamente.
+                if (-not (Merge-DirectoryInto -Source $item.FullName -Destination $target)) {
+                    return $false
+                }
+            }
+            # Si el destino ya tiene un archivo con ese nombre, se conserva.
+        }
+        return $true
+    }
+    catch {
+        Write-ErrorMsg "Error al fusionar: $_"
+        return $false
+    }
+}
+
 function Test-SafeChildPath {
     <#
     .SYNOPSIS
@@ -286,7 +326,8 @@ Export-ModuleMember -Function @(
     'Test-CudaVersionSupported',
     'Get-TorchIndexUrl',
     'Get-TorchExtra',
-    'Test-SafeChildPath'
+    'Test-SafeChildPath',
+    'Merge-DirectoryInto'
 ) -Variable @(
     'ColorReset','ColorBold','ColorCyan','ColorGreen',
     'ColorYellow','ColorRed','ColorGray'
