@@ -85,9 +85,10 @@ Este gestor solo automatiza la ruta **CUDA**. Para GPUs AMD (ROCm, DirectML, ZLU
 | `start` | `run` | Inicia ComfyUI con la configuración persistente. |
 | `custom-nodes` | `nodes` | Gestiona nodos Git (`list`, `add`, `remove`). |
 | `accelerators` | `accel` | Lista, activa y desactiva aceleradores (`list`, `enable`, `disable`). |
-| `set <clave> [valor]` | | Guarda ajustes en `etc/config.json`. |
-| `unset <clave>` | `rm` | Restablece ajustes a su valor por defecto. |
-| `config` | `get` | Muestra la configuración activa. |
+| `flag <list\|set\|unset>` | | Ajustes que llegan a `main.py` (`etc/config.json`). |
+| `install <list\|set\|unset>` | | Ajustes de instalación (`etc/config.json`). |
+| `manager <list\|set\|unset>` | `mgr` | Ajustes de ComfyUI-Manager (`config.ini`). |
+| `config` | `get` | Vista de solo lectura de toda la configuración. |
 | `upgrade` | `update` | Actualiza ComfyUI, los nodos y los aceleradores habilitados. |
 | `doctor` | | Compara el entorno real contra el perfil detectado. |
 | `reset` | `uninstall` | Limpia `.venv`, la instalación y la configuración local. |
@@ -154,14 +155,42 @@ La clave se resuelve contra el registro: vale la clave exacta, el nombre del paq
 
 Los cambios se aplican con `setup`. `set <clave> on|off` hace lo mismo y acepta las mismas formas.
 
-### `set` / `unset`
+### Ajustes: `flag`, `install` y `manager`
+
+Cada comando escribe en un archivo distinto y con un alcance distinto. Un ajuste pedido en el espacio equivocado no falla con un "clave desconocida": indica el comando correcto.
+
+**`flag`** — lo que termina siendo argumento de `main.py`, en `etc/config.json`:
+
 ```powershell
-.\comodo.ps1 set lowvram
-.\comodo.ps1 set port 8189
-.\comodo.ps1 set listen 0.0.0.0
-.\comodo.ps1 unset port
-.\comodo.ps1 unset all                # Restablece todo el bloque runtime
+.\comodo.ps1 flag list
+.\comodo.ps1 flag set lowvram
+.\comodo.ps1 flag set port 8189
+.\comodo.ps1 flag set listen 0.0.0.0
+.\comodo.ps1 flag unset port
+.\comodo.ps1 flag unset all           # Restablece todos los flags
 ```
+
+**`install`** — decisiones de aprovisionamiento, también en `etc/config.json`:
+
+```powershell
+.\comodo.ps1 install list
+.\comodo.ps1 install set cuda 13.0
+.\comodo.ps1 install set python 3.12
+```
+
+**`manager`** — el `config.ini` de **ComfyUI-Manager** (no del núcleo de ComfyUI):
+
+```powershell
+.\comodo.ps1 manager list
+.\comodo.ps1 manager set allow_git_url_install True
+.\comodo.ps1 manager unset allow_git_url_install
+```
+
+Ese `config.ini` vive dentro del directorio de instalación, que `reset` borra entero. Por eso `manager set` guarda además el valor en `etc/config.json` y **`setup` lo reaplica**: no hay que repetirlo tras cada reset. `manager unset` deja de fijarlo pero no revierte el `config.ini`, porque el valor actual puede seguir siendo el deseado.
+
+ComfyUI-Manager lee `config.ini` **al arrancar**, así que los cambios necesitan reiniciar ComfyUI con el servidor detenido.
+
+Los aceleradores tienen su propio comando (`accel`) y no se tocan desde aquí.
 
 ### `reset`
 ```powershell

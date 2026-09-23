@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $srcDir = Join-Path $PSScriptRoot "src"
-foreach ($mod in @('Common','Config','Checker','Probe','Installer','Runner','Updater','Doctor','Nodes','Accelerators','Cleaner')) {
+foreach ($mod in @('Common','Config','Checker','Probe','Installer','Runner','Updater','Doctor','Nodes','Accelerators','Manager','Cleaner')) {
     Import-Module (Join-Path $srcDir "$mod.psm1") -Force
 }
 
@@ -73,7 +73,7 @@ function Show-Help {
     Write-Host "      Detecta la GPU y calcula el perfil optimo para esta maquina."
     Write-Host "      Opciones: --show (no guarda cambios)`n"
 
-    Write-Host "  $ColorYellow setup $ColorReset (download, install)"
+    Write-Host "  $ColorYellow setup $ColorReset (download, provision)"
     Write-Host "      Clona ComfyUI, crea el venv con uv e instala PyTorch y los"
     Write-Host "      aceleradores que soporte la GPU detectada."
     Write-Host "      Opciones: --force, --cuda <ver>, --skip-opt, --skip-nodes, --allow-cpu`n"
@@ -82,9 +82,17 @@ function Show-Help {
     Write-Host "      Inicia ComfyUI con la configuracion guardada."
     Write-Host "      Opciones: --lowvram, --highvram, --no-sage, --listen <ip>, --port <n>`n"
 
-    Write-Host "  $ColorYellow set <clave> [valor]$ColorReset / $ColorYellow unset <clave>$ColorReset"
-    Write-Host "      Ajustes persistentes: lowvram, highvram, port, listen, sage,"
-    Write-Host "      triton, cuda, python, preview.`n"
+    Write-Host "  $ColorYellow flag <list|set|unset> [clave] [valor]$ColorReset"
+    Write-Host "      Ajustes que llegan a main.py: lowvram, highvram, listen,"
+    Write-Host "      port, preview, extra_args.  (etc/config.json)`n"
+
+    Write-Host "  $ColorYellow install <list|set|unset> [clave] [valor]$ColorReset"
+    Write-Host "      Ajustes de instalacion: cuda, python, install_dir, repo."
+    Write-Host "      (etc/config.json)`n"
+
+    Write-Host "  $ColorYellow manager <list|set|unset> [clave] [valor]$ColorReset (mgr)"
+    Write-Host "      Ajustes de ComfyUI-Manager (su config.ini). Se guardan y"
+    Write-Host "      se reaplican tras cada setup, asi un reset no los borra.`n"
 
     Write-Host "  $ColorYellow config $ColorReset (get)        Muestra la configuracion activa.`n"
 
@@ -107,7 +115,9 @@ function Show-Help {
     Write-Host "  .\comodo.ps1 nodes add https://github.com/user/mi-nodo.git"
     Write-Host "  .\comodo.ps1 accel list"
     Write-Host "  .\comodo.ps1 accel disable sage"
-    Write-Host "  .\comodo.ps1 set port 8189`n"
+    Write-Host "  .\comodo.ps1 flag set port 8189"
+    Write-Host "  .\comodo.ps1 install set cuda 13.0"
+    Write-Host "  .\comodo.ps1 manager set allow_git_url_install True`n"
 }
 
 # El codigo de salida refleja el resultado real, para poder encadenar comandos
@@ -125,7 +135,7 @@ try {
             $ok = ($null -ne (Invoke-HardwareProbe -ShowOnly:(Test-Flag @('show'))))
         }
 
-        '^(setup|download|install)$' {
+        '^(setup|download|provision)$' {
             $cuda = Get-OptionValue 'cuda'
             $ok = Invoke-ComfySetup `
                 -Force:(Test-Flag @('force')) `
@@ -173,20 +183,59 @@ try {
                 -Listen:$listen -Port:$port -ExtraArgs:$extra
         }
 
-        '^(set)$' {
-            if ($ArgsList.Count -lt 1) {
-                Write-ErrorMsg "Uso: .\comodo.ps1 set <clave> [valor]"
-                exit 2
+        # 'flag' e 'install' comparten implementacion y se distinguen por el
+        # espacio, que valida que la clave pertenezca a ese grupo.
+        '^(flag|flags|install|instalacion)$' {
+            $scope = if ($Command.ToLower() -in @('flag','flags')) { 'flag' } else { 'install' }
+            $sub = if ($ArgsList.Count -gt 0) { $ArgsList[0].ToLower() } else { 'list' }
+
+            switch -Regex ($sub) {
+                '^(list|ls|show)$' { $ok = Show-SettingScope -Scope $scope }
+                '^(set)$' {
+                    if ($ArgsList.Count -lt 2) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 $scope set <clave> [valor]"
+                        exit 2
+                    }
+                    $val = if ($ArgsList.Count -gt 2) { $ArgsList[2] } else { $null }
+                    $ok = Set-ComfyConfigProperty -Key $ArgsList[1] -Value $val -Scope $scope
+                }
+                '^(unset|reset)$' {
+                    if ($ArgsList.Count -lt 2) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 $scope unset <clave>"
+                        exit 2
+                    }
+                    $ok = Reset-ComfyConfigProperty -Key $ArgsList[1] -Scope $scope
+                }
+                default {
+                    Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, set, unset."
+                    exit 2
+                }
             }
-            $ok = Set-ComfyConfigProperty -Key $ArgsList[0] -Value $(if ($ArgsList.Count -gt 1) { $ArgsList[1] } else { $null })
         }
 
-        '^(unset|rm)$' {
-            if ($ArgsList.Count -lt 1) {
-                Write-ErrorMsg "Uso: .\comodo.ps1 unset <clave>"
-                exit 2
+        '^(manager|mgr)$' {
+            $sub = if ($ArgsList.Count -gt 0) { $ArgsList[0].ToLower() } else { 'list' }
+            switch -Regex ($sub) {
+                '^(list|ls|show)$' { $ok = Show-ManagerConfig }
+                '^(set)$' {
+                    if ($ArgsList.Count -lt 3) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 manager set <clave> <valor>"
+                        exit 2
+                    }
+                    $ok = Set-ManagerSetting -Key $ArgsList[1] -Value $ArgsList[2]
+                }
+                '^(unset|reset)$' {
+                    if ($ArgsList.Count -lt 2) {
+                        Write-ErrorMsg "Uso: .\comodo.ps1 manager unset <clave>"
+                        exit 2
+                    }
+                    $ok = Reset-ManagerSetting -Key $ArgsList[1]
+                }
+                default {
+                    Write-ErrorMsg "Subcomando no reconocido: '$sub'. Usa: list, set, unset."
+                    exit 2
+                }
             }
-            $ok = Reset-ComfyConfigProperty -Key $ArgsList[0]
         }
 
         '^(custom-nodes|custom-node|nodes|node)$' {

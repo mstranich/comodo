@@ -244,14 +244,89 @@ function Save-ComfyConfig {
     Set-Content -Path $cfgPath -Value $json -Encoding UTF8
 }
 
+# Reparto de claves por espacio de nombres. 'flag' son las que terminan
+# siendo argumentos de main.py; 'install' son decisiones de aprovisionamiento
+# que nunca llegan a la linea de comandos de ComfyUI. Los aceleradores tienen
+# su propio comando ('accel'), por eso no aparecen aqui.
+$script:SettingScopes = @{
+    flag = @(
+        'lowvram', 'low-vram', 'highvram', 'high-vram',
+        'listen', 'host', 'ip', 'port', 'puerto',
+        'preview', 'preview_method', 'extra_args', 'extraargs'
+    )
+    install = @(
+        'cuda', 'cuda_version', 'python', 'python_version',
+        'install_dir', 'dir', 'repo', 'comfy_repo'
+    )
+}
+
+function Get-SettingScope {
+    <#
+    .SYNOPSIS
+        Devuelve el espacio ('flag' o 'install') al que pertenece una clave.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][string]$Key)
+
+    $k = $Key.ToLower()
+    foreach ($scope in $script:SettingScopes.Keys) {
+        if ($script:SettingScopes[$scope] -contains $k) { return $scope }
+    }
+    return $null
+}
+
+function Assert-SettingScope {
+    <#
+    .SYNOPSIS
+        Verifica que la clave corresponda al espacio invocado.
+    .DESCRIPTION
+        Si la clave existe pero en el otro espacio, se indica el comando
+        correcto en vez de un "clave no reconocida" que no orienta.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Key,
+        [Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope,
+        [Parameter(Mandatory=$true)][PSCustomObject]$Config,
+        [Parameter(Mandatory=$true)][string]$Verb
+    )
+
+    $k = $Key.ToLower()
+
+    # Los aceleradores viven en su propio comando.
+    if (Resolve-ComfyAcceleratorKey -Config $Config -Name $k) {
+        Write-ErrorMsg "'$Key' es un acelerador, no un ajuste de '$Scope'."
+        Write-Info "Usa: .\comodo.ps1 accel <enable|disable> $k"
+        return $false
+    }
+
+    $actual = Get-SettingScope -Key $k
+    if (-not $actual) {
+        Write-ErrorMsg "Clave no reconocida: '$Key'."
+        Write-Info "Validas en '$Scope': $($script:SettingScopes[$Scope] -join ', ')"
+        return $false
+    }
+    if ($actual -ne $Scope) {
+        Write-ErrorMsg "'$Key' pertenece a '$actual', no a '$Scope'."
+        Write-Info "Usa: .\comodo.ps1 $actual $Verb $k"
+        return $false
+    }
+    return $true
+}
+
 function Set-ComfyConfigProperty {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true, Position=0)][string]$Key,
-        [Parameter(Position=1)][AllowNull()][string]$Value = $null
+        [Parameter(Position=1)][AllowNull()][string]$Value = $null,
+        [Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope
     )
 
     $config = Get-ComfyConfig
+    if (-not (Assert-SettingScope -Key $Key -Scope $Scope -Config $config -Verb 'set')) {
+        return $false
+    }
+
     $keyLower = $Key.ToLower()
 
     if ([string]::IsNullOrEmpty($Value)) {
@@ -262,27 +337,11 @@ function Set-ComfyConfigProperty {
     elseif ($Value -match '^\d+$')                      { $valObj = [int]$Value }
     else                                                { $valObj = $Value }
 
-    # Los aceleradores se resuelven contra el registro antes del switch: asi
-    # 'set <clave>' funciona con cualquier entrada de la tabla, incluidas las
-    # anadidas despues, sin tener que ampliar ninguna expresion regular.
-    $accelKey = Resolve-ComfyAcceleratorKey -Config $config -Name $keyLower
-    if ($accelKey) {
-        $accel = Get-ComfyAccelerator -Config $config -Key $accelKey
-        $accel.enabled = [bool]$valObj
-        if ($accel.runtime_flag) {
-            Set-DefaultMember -Object $config.runtime -Name $accelKey -Default $false
-            $config.runtime.$accelKey = [bool]$valObj
-        }
-        Save-ComfyConfig -Config $config
-        Write-Success "accelerators.$accelKey = $([bool]$valObj)"
-        return $true
-    }
-
     switch -Regex ($keyLower) {
         '^(lowvram|low-vram)$' {
             $config.runtime.lowvram = [bool]$valObj
-            # lowvram y highvram son mutuamente excluyentes: activar uno apaga el otro
-            # en vez de dejar un estado ambiguo que el runner resolveria en silencio.
+            # lowvram y highvram son mutuamente excluyentes: activar uno apaga
+            # el otro en vez de dejar un estado ambiguo.
             if ($config.runtime.lowvram) { $config.runtime.highvram = $false }
             Write-Success "runtime.lowvram = $($config.runtime.lowvram)"
         }
@@ -301,25 +360,11 @@ function Set-ComfyConfigProperty {
         }
         '^(listen|host|ip)$' {
             $config.runtime.listen = [string]$valObj
-            if ($config.runtime.listen -eq "0.0.0.0") {
-                Write-WarningMsg "listen=0.0.0.0 expone ComfyUI a toda la red local, sin autenticacion."
+            if ($config.runtime.listen -ne "127.0.0.1" -and $config.runtime.listen -ne "::1") {
+                Write-WarningMsg "Escuchar fuera de loopback expone ComfyUI a la red, sin autenticacion."
+                Write-WarningMsg "ComfyUI-Manager ademas bloquea la instalacion por URL Git si no es loopback."
             }
             Write-Success "runtime.listen = $($config.runtime.listen)"
-        }
-        '^(cuda|cuda_version)$' {
-            $requested = [string]$valObj
-            if (-not (Test-CudaVersionSupported -Version $requested)) {
-                Write-ErrorMsg "Version de CUDA no soportada: '$requested'."
-                Write-Info "Valores validos: $((Get-SupportedCudaVersions) -join ', ')"
-                return $false
-            }
-            $config.install.cuda_version = $requested
-            $config.install.torch_index_url = Get-TorchIndexUrl -CudaVersion $requested
-            Write-Success "install.cuda_version = $requested ($($config.install.torch_index_url))"
-        }
-        '^(python|python_version)$' {
-            $config.install.python_version = [string]$valObj
-            Write-Success "install.python_version = $($config.install.python_version)"
         }
         '^(preview|preview_method)$' {
             $valid = @('auto','latent2rgb','taesd','none')
@@ -330,9 +375,35 @@ function Set-ComfyConfigProperty {
             $config.runtime.preview_method = [string]$valObj
             Write-Success "runtime.preview_method = $($config.runtime.preview_method)"
         }
+        '^(extra_args|extraargs)$' {
+            $config.runtime.extra_args = @([string]$valObj -split '\s+' | Where-Object { $_ })
+            Write-Success "runtime.extra_args = $(@($config.runtime.extra_args) -join ' ')"
+        }
+        '^(cuda|cuda_version)$' {
+            $requested = [string]$valObj
+            if (-not (Test-CudaVersionSupported -Version $requested)) {
+                Write-ErrorMsg "Version de CUDA no soportada: '$requested'."
+                Write-Info "Valores validos: $((Get-SupportedCudaVersions) -join ', ')"
+                return $false
+            }
+            $config.install.cuda_version    = $requested
+            $config.install.torch_index_url = Get-TorchIndexUrl -CudaVersion $requested
+            Write-Success "install.cuda_version = $requested ($($config.install.torch_index_url))"
+        }
+        '^(python|python_version)$' {
+            $config.install.python_version = [string]$valObj
+            Write-Success "install.python_version = $($config.install.python_version)"
+        }
+        '^(install_dir|dir)$' {
+            $config.install.install_dir = [string]$valObj
+            Write-Success "install.install_dir = $($config.install.install_dir)"
+        }
+        '^(repo|comfy_repo)$' {
+            $config.install.comfy_repo = [string]$valObj
+            Write-Success "install.comfy_repo = $($config.install.comfy_repo)"
+        }
         default {
-            Write-WarningMsg "Clave '$Key' no reconocida."
-            Write-Info "Validas: lowvram, highvram, port, listen, sage, triton, cuda, python, preview."
+            Write-ErrorMsg "Clave sin implementacion: '$Key'."
             return $false
         }
     }
@@ -343,64 +414,88 @@ function Set-ComfyConfigProperty {
 
 function Reset-ComfyConfigProperty {
     [CmdletBinding()]
-    param([Parameter(Mandatory=$true, Position=0)][string]$Key)
+    param(
+        [Parameter(Mandatory=$true, Position=0)][string]$Key,
+        [Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope
+    )
 
-    $config = Get-ComfyConfig
+    $config   = Get-ComfyConfig
     $defaults = New-DefaultConfig
     $keyLower = $Key.ToLower()
 
-    # Restablecer un acelerador = devolverlo a lo que decide el hardware, que
-    # es justo lo que recalcula 'probe'. Aqui se reevalua sin volver a sondear.
-    $accelKey = Resolve-ComfyAcceleratorKey -Config $config -Name $keyLower
-    if ($accelKey) {
-        Write-Info "Los aceleradores los determina el hardware."
-        Write-Info "Ejecuta '.\comodo.ps1 probe' para recalcular '$accelKey'."
+    if ($Scope -eq 'flag' -and $keyLower -in @('all','todo')) {
+        $config.runtime.lowvram        = $defaults.runtime.lowvram
+        $config.runtime.highvram       = $defaults.runtime.highvram
+        $config.runtime.preview_method = $defaults.runtime.preview_method
+        $config.runtime.listen         = $defaults.runtime.listen
+        $config.runtime.port           = $defaults.runtime.port
+        $config.runtime.extra_args     = @()
+        Save-ComfyConfig -Config $config
+        Write-Success "Flags restablecidos a sus valores por defecto."
         return $true
     }
 
+    if (-not (Assert-SettingScope -Key $Key -Scope $Scope -Config $config -Verb 'unset')) {
+        return $false
+    }
+
     switch -Regex ($keyLower) {
-        '^(lowvram|low-vram)$' {
-            $config.runtime.lowvram = $false
-            Write-Success "runtime.lowvram restablecido a: false"
+        '^(cuda|cuda_version)$' {
+            # La version de CUDA la decide el hardware, no un valor fijo.
+            Write-Info "La version de CUDA la determina el hardware."
+            Write-Info "Ejecuta '.\comodo.ps1 probe' para recalcularla."
+            return $true
         }
-        '^(highvram|high-vram)$' {
-            $config.runtime.highvram = $false
-            Write-Success "runtime.highvram restablecido a: false"
-        }
-        '^(port|puerto)$' {
-            $config.runtime.port = $defaults.runtime.port
-            Write-Success "runtime.port restablecido a: $($config.runtime.port)"
-        }
-        '^(listen|host|ip)$' {
-            $config.runtime.listen = $defaults.runtime.listen
-            Write-Success "runtime.listen restablecido a: $($config.runtime.listen)"
-        }
-        '^(preview|preview_method)$' {
-            $config.runtime.preview_method = $defaults.runtime.preview_method
-            Write-Success "runtime.preview_method restablecido a: $($config.runtime.preview_method)"
-        }
-        '^(extra_args|extraargs)$' {
-            $config.runtime.extra_args = @()
-            Write-Success "runtime.extra_args vaciado."
-        }
-        '^(all|todo|reset)$' {
-            $config.runtime.lowvram        = $defaults.runtime.lowvram
-            $config.runtime.highvram       = $defaults.runtime.highvram
-            $config.runtime.sage_attention = Test-ComfyAcceleratorEnabled -Config $config -Key 'sage_attention'
-            $config.runtime.preview_method = $defaults.runtime.preview_method
-            $config.runtime.listen         = $defaults.runtime.listen
-            $config.runtime.port           = $defaults.runtime.port
-            $config.runtime.extra_args     = @()
-            Write-Success "Parametros de runtime restablecidos a sus valores por defecto."
-        }
+        '^(lowvram|low-vram)$'       { $config.runtime.lowvram = $defaults.runtime.lowvram }
+        '^(highvram|high-vram)$'     { $config.runtime.highvram = $defaults.runtime.highvram }
+        '^(port|puerto)$'            { $config.runtime.port = $defaults.runtime.port }
+        '^(listen|host|ip)$'         { $config.runtime.listen = $defaults.runtime.listen }
+        '^(preview|preview_method)$' { $config.runtime.preview_method = $defaults.runtime.preview_method }
+        '^(extra_args|extraargs)$'   { $config.runtime.extra_args = @() }
+        '^(python|python_version)$'  { $config.install.python_version = $defaults.install.python_version }
+        '^(install_dir|dir)$'        { $config.install.install_dir = $defaults.install.install_dir }
+        '^(repo|comfy_repo)$'        { $config.install.comfy_repo = $defaults.install.comfy_repo }
         default {
-            Write-WarningMsg "Clave '$Key' no reconocida para unset."
-            Write-Info "Opciones: lowvram, highvram, port, listen, sage, preview, extra_args, all."
+            Write-ErrorMsg "Clave sin implementacion: '$Key'."
             return $false
         }
     }
 
     Save-ComfyConfig -Config $config
+    Write-Success "'$keyLower' restablecido a su valor por defecto."
+    return $true
+}
+
+function Show-SettingScope {
+    <#
+    .SYNOPSIS
+        Lista los ajustes de un espacio con su valor actual.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][ValidateSet('flag','install')][string]$Scope)
+
+    $cfg = Get-ComfyConfig
+
+    if ($Scope -eq 'flag') {
+        Write-StepHeader "Flags de ejecucion (etc/config.json, llegan a main.py)"
+        $vram = if ($cfg.runtime.lowvram) { "lowvram" } elseif ($cfg.runtime.highvram) { "highvram" } else { "normal" }
+        Write-KeyVal "lowvram"     "$($cfg.runtime.lowvram)"
+        Write-KeyVal "highvram"    "$($cfg.runtime.highvram)"
+        Write-KeyVal "(modo VRAM)" $vram
+        Write-KeyVal "listen"      (Format-ConfigValue $cfg.runtime.listen)
+        Write-KeyVal "port"        (Format-ConfigValue $cfg.runtime.port)
+        Write-KeyVal "preview"     (Format-ConfigValue $cfg.runtime.preview_method)
+        Write-KeyVal "extra_args"  $(if (@($cfg.runtime.extra_args).Count -gt 0) { @($cfg.runtime.extra_args) -join ' ' } else { "(ninguno)" })
+    }
+    else {
+        Write-StepHeader "Ajustes de instalacion (etc/config.json)"
+        Write-KeyVal "cuda"        (Format-ConfigValue $cfg.install.cuda_version "sin definir (ejecuta probe)")
+        Write-KeyVal "python"      (Format-ConfigValue $cfg.install.python_version)
+        Write-KeyVal "install_dir" (Format-ConfigValue $cfg.install.install_dir)
+        Write-KeyVal "repo"        (Format-ConfigValue $cfg.install.comfy_repo)
+        Write-KeyVal "(indice)"    (Format-ConfigValue $cfg.install.torch_index_url "sin definir")
+    }
+    Write-Host ""
     return $true
 }
 
@@ -476,5 +571,7 @@ Export-ModuleMember -Function @(
     'Format-ConfigValue',
     'Get-ComfyAccelerator',
     'Resolve-ComfyAcceleratorKey',
+    'Get-SettingScope',
+    'Show-SettingScope',
     'Test-ComfyAcceleratorEnabled'
 )

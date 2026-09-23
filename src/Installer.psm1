@@ -8,6 +8,7 @@ Import-Module (Join-Path $PSScriptRoot "Common.psm1")
 Import-Module (Join-Path $PSScriptRoot "Config.psm1")
 Import-Module (Join-Path $PSScriptRoot "Checker.psm1")
 Import-Module (Join-Path $PSScriptRoot "Probe.psm1")
+Import-Module (Join-Path $PSScriptRoot "Manager.psm1")
 
 function Install-CustomNodeRepo {
     <#
@@ -251,6 +252,10 @@ for mod in ("triton", "sageattention"):
             }
         }
     }
+
+    # Los ajustes de ComfyUI-Manager viven en su config.ini, dentro del
+    # directorio que 'reset' borra. Se reaplican aqui, ya instalado el nodo.
+    Sync-ManagerConfig | Out-Null
 
     Write-Banner "[OK] ComfyUI aprovisionado." -Level Success
     Write-KeyVal "GPU"    (Format-ConfigValue $config.hardware.model)
