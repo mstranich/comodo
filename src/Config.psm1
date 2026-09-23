@@ -535,25 +535,36 @@ function Show-SettingScope {
 
     if ($Scope -eq 'flag') {
         Write-StepHeader "Flags de ejecucion (etc/config.json, llegan a main.py)"
+
+        # Se muestran las claves tal y como estan en etc/config.json, no sus
+        # alias: antes esta vista imprimia 'preview', 'manager' y 'legacy_ui',
+        # que no existen en el archivo, de modo que buscarlos ahi no daba nada.
+        Write-KeyVal -Width 24 "lowvram"                  "$($cfg.runtime.lowvram)"
+        Write-KeyVal -Width 24 "highvram"                 "$($cfg.runtime.highvram)"
+        Write-KeyVal -Width 24 "listen"                   (Format-ConfigValue $cfg.runtime.listen)
+        Write-KeyVal -Width 24 "port"                     (Format-ConfigValue $cfg.runtime.port)
+        Write-KeyVal -Width 24 "preview_method"           (Format-ConfigValue $cfg.runtime.preview_method)
+        Write-KeyVal -Width 24 "enable_manager"           "$($cfg.runtime.enable_manager)"
+        Write-KeyVal -Width 24 "disable_manager_ui"       "$($cfg.runtime.disable_manager_ui)"
+        Write-KeyVal -Width 24 "enable_manager_legacy_ui" "$($cfg.runtime.enable_manager_legacy_ui)"
+        Write-KeyVal -Width 24 "extra_args"               $(if (@($cfg.runtime.extra_args).Count -gt 0) { @($cfg.runtime.extra_args) -join ' ' } else { "(ninguno)" })
+
+        # Lo derivado se marca entre parentesis para que no se confunda con
+        # una clave del archivo.
         $vram = if ($cfg.runtime.lowvram) { "lowvram" } elseif ($cfg.runtime.highvram) { "highvram" } else { "normal" }
-        Write-KeyVal "lowvram"     "$($cfg.runtime.lowvram)"
-        Write-KeyVal "highvram"    "$($cfg.runtime.highvram)"
-        Write-KeyVal "(modo VRAM)" $vram
-        Write-KeyVal "listen"      (Format-ConfigValue $cfg.runtime.listen)
-        Write-KeyVal "port"        (Format-ConfigValue $cfg.runtime.port)
-        Write-KeyVal "preview"     (Format-ConfigValue $cfg.runtime.preview_method)
-        Write-KeyVal "manager"     "$($cfg.runtime.enable_manager)"
-        Write-KeyVal "disable_manager_ui" "$($cfg.runtime.disable_manager_ui)"
-        Write-KeyVal "legacy_ui"   "$($cfg.runtime.enable_manager_legacy_ui)"
-        Write-KeyVal "extra_args"  $(if (@($cfg.runtime.extra_args).Count -gt 0) { @($cfg.runtime.extra_args) -join ' ' } else { "(ninguno)" })
+        Write-Host ""
+        Write-KeyVal -Width 24 "(modo VRAM)"              $vram
+        Write-Info "'set' acepta alias: manager, legacy_ui, preview, dir..."
     }
     else {
         Write-StepHeader "Ajustes de aprovisionamiento (etc/config.json)"
-        Write-KeyVal "cuda"        (Format-ConfigValue $cfg.install.cuda_version "sin definir (ejecuta probe)")
-        Write-KeyVal "python"      (Format-ConfigValue $cfg.install.python_version)
-        Write-KeyVal "install_dir" (Format-ConfigValue $cfg.install.install_dir)
-        Write-KeyVal "repo"        (Format-ConfigValue $cfg.install.comfy_repo)
-        Write-KeyVal "(indice)"    (Format-ConfigValue $cfg.install.torch_index_url "sin definir")
+        Write-KeyVal "cuda_version"    (Format-ConfigValue $cfg.install.cuda_version "sin definir (ejecuta probe)")
+        Write-KeyVal "python_version"  (Format-ConfigValue $cfg.install.python_version)
+        Write-KeyVal "install_dir"     (Format-ConfigValue $cfg.install.install_dir)
+        Write-KeyVal "comfy_repo"      (Format-ConfigValue $cfg.install.comfy_repo)
+        Write-Host ""
+        Write-KeyVal "(torch_index_url)" (Format-ConfigValue $cfg.install.torch_index_url "sin definir")
+        Write-Info "'set' acepta alias: cuda, python, dir, repo."
     }
     Write-Host ""
     return $true

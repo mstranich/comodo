@@ -177,3 +177,49 @@ Describe 'Flags del Manager' {
         }
     }
 }
+
+Describe 'Etiquetas de las vistas' {
+    BeforeAll {
+        $script:ConfigSrc = Get-Content -LiteralPath (
+            Join-Path (Split-Path $PSScriptRoot -Parent) 'src\Config.psm1'
+        ) -Raw
+    }
+
+    # Regresion: 'flag list' mostraba 'preview', 'manager' y 'legacy_ui', que
+    # son alias de 'set' y no existen en etc/config.json. Quien los buscaba en
+    # el archivo no los encontraba. La vista debe nombrar las claves reales.
+    It 'las etiquetas de flag list existen en el esquema' {
+        $cfg = New-DefaultConfig
+        $reales = @($cfg.runtime.PSObject.Properties.Name)
+
+        # Etiquetas literales del bloque, sin las derivadas entre parentesis.
+        $bloque = [regex]::Match(
+            $script:ConfigSrc,
+            'Flags de ejecucion(?s).*?acepta alias'
+        ).Value
+        $etiquetas = @([regex]::Matches($bloque, 'Write-KeyVal -Width \d+ "([^"(]+)"') |
+            ForEach-Object { $_.Groups[1].Value })
+
+        $etiquetas.Count | Should -BeGreaterThan 5
+        foreach ($e in $etiquetas) {
+            $reales | Should -Contain $e -Because "'$e' no es una clave de runtime"
+        }
+    }
+
+    It 'las etiquetas de provision list existen en el esquema' {
+        $cfg = New-DefaultConfig
+        $reales = @($cfg.install.PSObject.Properties.Name)
+
+        $bloque = [regex]::Match(
+            $script:ConfigSrc,
+            'Ajustes de aprovisionamiento(?s).*?acepta alias'
+        ).Value
+        $etiquetas = @([regex]::Matches($bloque, 'Write-KeyVal "([^"(]+)"') |
+            ForEach-Object { $_.Groups[1].Value })
+
+        $etiquetas.Count | Should -BeGreaterThan 3
+        foreach ($e in $etiquetas) {
+            $reales | Should -Contain $e -Because "'$e' no es una clave de install"
+        }
+    }
+}

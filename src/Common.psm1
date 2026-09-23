@@ -58,9 +58,12 @@ function Write-KeyVal {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)][string]$Key,
-        [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Value
+        [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Value,
+        # Los bloques con claves largas pasan un ancho mayor para no romper
+        # la columna; 22 sigue siendo el valor del resto de la salida.
+        [int]$Width = 22
     )
-    $paddedKey = $Key.PadRight(22)
+    $paddedKey = $Key.PadRight($Width)
     Write-Host "  $ColorBold$paddedKey$ColorReset : $ColorCyan$Value$ColorReset"
 }
 
